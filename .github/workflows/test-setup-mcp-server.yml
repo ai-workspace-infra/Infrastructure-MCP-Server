@@ -1,0 +1,72 @@
+name: Test Setup MCP Server Installer
+
+on:
+  push:
+    branches:
+      - main
+      - 'feat/**'
+      - 'feature/**'
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  shellcheck-and-syntax:
+    name: Lint & Syntax Check
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install shellcheck
+        run: sudo apt-get update -qq && sudo apt-get install -y shellcheck
+
+      - name: Run shellcheck
+        run: shellcheck scripts/setup-mcp-server.sh
+
+      - name: Run bash syntax check
+        run: bash -n scripts/setup-mcp-server.sh
+
+  installer-smoke-tests:
+    name: Installer Smoke Tests
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Test --help flag
+        run: bash scripts/setup-mcp-server.sh --help
+
+      - name: Test argument validations
+        run: |
+          echo "Testing unknown flag rejection..."
+          ! bash scripts/setup-mcp-server.sh --invalid-flag
+          echo "Testing missing domain rejection..."
+          ! sudo bash scripts/setup-mcp-server.sh --standalone
+          echo "Testing mutually exclusive flags..."
+          ! sudo bash scripts/setup-mcp-server.sh --domain mcp.example.com --standalone --with-backends
+          echo "Testing fail-closed team mode without env vars..."
+          ! sudo bash scripts/setup-mcp-server.sh --domain mcp.example.com --with-backends
+
+      - name: Test standalone dry-run on host
+        run: |
+          sudo bash scripts/setup-mcp-server.sh --domain mcp.example.com --standalone --dry-run
+
+      - name: Test team mode dry-run on host
+        run: |
+          export MCP_DOMAIN="mcp.example.com"
+          export MCP_SERVICE_TOKEN="test-runtime-token-secret"
+          sudo -E bash scripts/setup-mcp-server.sh --domain "$MCP_DOMAIN" --with-backends --dry-run
+
+      - name: Test uninstall dry-run on host
+        run: |
+          sudo bash scripts/setup-mcp-server.sh --uninstall --dry-run
+
+      - name: Docker container smoke test (Debian 12 slim) - help
+        run: docker run --rm -v "$PWD:$PWD" -w "$PWD" debian:12-slim bash scripts/setup-mcp-server.sh --help
+
+      - name: Docker container smoke test (Debian 12 slim) - standalone dry-run
+        run: docker run --rm -v "$PWD:$PWD" -w "$PWD" debian:12-slim bash scripts/setup-mcp-server.sh --domain mcp.example.com --standalone --dry-run
+
+      - name: Docker container smoke test (Ubuntu 24.04) - standalone dry-run
+        run: docker run --rm -v "$PWD:$PWD" -w "$PWD" ubuntu:24.04 bash scripts/setup-mcp-server.sh --domain mcp.example.com --standalone --dry-run
