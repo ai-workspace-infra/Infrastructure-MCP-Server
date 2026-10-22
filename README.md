@@ -30,6 +30,40 @@ This repository contains the initial implementation scaffold:
 
 Downstream adapters are intentionally configured rather than hard-coded. This lets the gateway reuse the chosen open-source Kubernetes, Helm, NetBox, Terraform, Vault, and Ansible Playbook MCP implementations while keeping the gateway independent of package-specific APIs.
 
+## 🚀 快速开始
+
+在 Debian 12+ 或 Ubuntu 22.04+ 服务器上，可使用一键安装脚本部署 Infrastructure-MCP-Server 及其 Caddy HTTPS 反向代理。
+
+### 独立模式 (Standalone)
+
+本地单机部署，自动生成初始服务凭证（仅在安装结束时展示一次，建议写入 Vault）：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/ai-workspace-infra/Infrastructure-MCP-Server/main/scripts/setup-mcp-server.sh | \
+  bash -s -- --domain mcp.example.com --standalone
+```
+
+### 团队模式 (Team / Vault 动态注入)
+
+结合团队凭据管理，在执行安装前由 Vault 或环境变量注入运行时凭证（执行后立即清理临时变量）：
+
+```bash
+export MCP_DOMAIN="mcp.example.com"
+export MCP_SERVICE_TOKEN="<runtime-secret>"
+curl -fsSL https://raw.githubusercontent.com/ai-workspace-infra/Infrastructure-MCP-Server/main/scripts/setup-mcp-server.sh | \
+  bash -s -- --domain "$MCP_DOMAIN" --with-backends
+unset MCP_SERVICE_TOKEN
+```
+
+### 卸载 (Uninstall)
+
+停止并禁用 systemd 服务与 Caddy 代理容器，清理二进制文件，并将当前配置和数据自动备份至 `/var/backups/`：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/ai-workspace-infra/Infrastructure-MCP-Server/main/scripts/setup-mcp-server.sh | \
+  bash -s -- --uninstall
+```
+
 ## Run
 
 With no configuration, the server starts with only the built-in tools:
