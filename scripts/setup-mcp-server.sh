@@ -7,6 +7,8 @@ set -euo pipefail
 
 PINNED_MCP_VERSION="0.1.0"
 PINNED_CADDY_VERSION="2.8.4"
+CADDY_SHA256_AMD64="a7e8306c54138cf88e371c5ec0caf7baf142ecc1d60a30897dfb67d65d3748c8"
+CADDY_SHA256_ARM64="93a3eb31883d678c6590c6d823eb6bb9f7a3af66dcd9d53df3eb2c7528b2af05"
 PINNED_GO_VERSION="1.24.2"
 DEFAULT_INSTALL_ROOT="/opt/mcp-server"
 DEFAULT_CONFIG_DIR="/etc/infrastructure-mcp-server"
@@ -537,18 +539,55 @@ EOF
         systemctl reload-or-restart caddy 2>/dev/null || systemctl restart caddy 2>/dev/null || true
     else
         echo "Configuring standalone Caddy ${PINNED_CADDY_VERSION}..."
-        if [ ! -x "/usr/local/bin/caddy" ]; then
-            arch=$(uname -m)
-            case "$arch" in
-                x86_64) caddy_arch="amd64" ;;
-                aarch64|arm64) caddy_arch="arm64" ;;
-                *) echo "ERROR: Unsupported architecture for Caddy: $arch" >&2; exit 1 ;;
-            esac
+        arch=$(uname -m)
+        case "$arch" in
+            x86_64)
+                caddy_arch="amd64"
+                expected_caddy_sha256="$CADDY_SHA256_AMD64"
+                ;;
+            aarch64|arm64)
+                caddy_arch="arm64"
+                expected_caddy_sha256="$CADDY_SHA256_ARM64"
+                ;;
+            *)
+                echo "ERROR: Unsupported architecture for Caddy: $arch" >&2
+                exit 1
+                ;;
+        esac
+
+        caddy_needs_install=true
+        if [ -x "/usr/local/bin/caddy" ]; then
+            installed_caddy_ver="$(/usr/local/bin/caddy version 2>/dev/null | awk '{print $1}' | sed 's/^v//')"
+            if [ "$installed_caddy_ver" = "$PINNED_CADDY_VERSION" ]; then
+                echo "Caddy is already installed at pinned version ${PINNED_CADDY_VERSION}. Skipping download."
+                caddy_needs_install=false
+            fi
+        fi
+
+        if [ "$caddy_needs_install" = true ]; then
             caddy_tar="caddy_${PINNED_CADDY_VERSION}_linux_${caddy_arch}.tar.gz"
-            curl -fsSL "https://github.com/caddyserver/caddy/releases/download/v${PINNED_CADDY_VERSION}/${caddy_tar}" -o "/tmp/${caddy_tar}"
-            tar -C /usr/local/bin -xzf "/tmp/${caddy_tar}" caddy
+            caddy_tar_path="/tmp/${caddy_tar}"
+            echo "Downloading Caddy v${PINNED_CADDY_VERSION} (${caddy_arch})..."
+            if ! curl -fsSL "https://github.com/caddyserver/caddy/releases/download/v${PINNED_CADDY_VERSION}/${caddy_tar}" -o "$caddy_tar_path"; then
+                echo "ERROR: Failed to download Caddy from GitHub releases." >&2
+                rm -f "$caddy_tar_path"
+                exit 1
+            fi
+
+            echo "Verifying Caddy archive SHA256 checksum..."
+            downloaded_caddy_sha="$(sha256sum "$caddy_tar_path" 2>/dev/null | awk '{print $1}')"
+            if [ "$downloaded_caddy_sha" != "$expected_caddy_sha256" ]; then
+                echo "ERROR: SHA256 checksum mismatch for Caddy archive!" >&2
+                echo "Expected: ${expected_caddy_sha256}" >&2
+                echo "Actual:   ${downloaded_caddy_sha}" >&2
+                rm -f "$caddy_tar_path"
+                exit 1
+            fi
+
+            tar -C /usr/local/bin -xzf "$caddy_tar_path" caddy
             chmod 755 /usr/local/bin/caddy
-            rm -f "/tmp/${caddy_tar}"
+            rm -f "$caddy_tar_path"
+            echo "✓ Verified SHA256 and installed Caddy to /usr/local/bin/caddy"
         fi
         cat > "$CADDY_SERVICE" <<EOF
 [Unit]
