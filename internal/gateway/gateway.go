@@ -3,7 +3,9 @@ package gateway
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"strings"
+	"time"
 
 	"github.com/ai-workspace-infra/Infrastructure-MCP-Server/internal/config"
 	"github.com/ai-workspace-infra/Infrastructure-MCP-Server/internal/graph"
@@ -27,7 +29,11 @@ func New(cfg config.Config, graphStore *graph.Store) *Gateway {
 	backends := make([]Backend, 0, len(cfg.Backends))
 	for _, backendCfg := range cfg.Backends {
 		if backendCfg.IsEnabled() {
-			backends = append(backends, mcp.NewProcessClient(backendCfg))
+			if backendCfg.URL != "" {
+				backends = append(backends, mcp.NewHTTPClient(backendCfg))
+			} else {
+				backends = append(backends, mcp.NewProcessClient(backendCfg))
+			}
 		}
 	}
 	return &Gateway{backends: backends, graph: graphStore}
@@ -38,6 +44,7 @@ func (g *Gateway) Tools(ctx context.Context) ([]mcp.Tool, error) {
 		{Name: "infra.backends", Description: "List configured Infrastructure MCP backends and their capabilities.", InputSchema: objectSchema()},
 		{Name: "infra.graph.query", Description: "Query the Environment Graph for infrastructure nodes and relationships.", InputSchema: objectSchema(map[string]any{"query": map[string]any{"type": "string", "description": "Optional substring to match node id, kind, or name."}})},
 		{Name: "infra.health", Description: "Check connectivity to configured Infrastructure MCP backends.", InputSchema: objectSchema()},
+		{Name: "infra.observability.status", Description: "Inspect the live status, data ingestion endpoints, and MCP adapters of the centralized observability stack (observability.svc.plus).", InputSchema: objectSchema()},
 	}
 	for _, backend := range g.backends {
 		backendTools, err := backend.Tools(ctx)
@@ -65,6 +72,8 @@ func (g *Gateway) Call(ctx context.Context, name string, arguments map[string]an
 		return mcp.JSONResult(g.graph.Query(query))
 	case "infra.health":
 		return g.health(ctx)
+	case "infra.observability.status":
+		return g.observabilityStatus(ctx)
 	}
 
 	separator := strings.IndexByte(name, '.')
@@ -78,6 +87,99 @@ func (g *Gateway) Call(ctx context.Context, name string, arguments map[string]an
 		}
 	}
 	return mcp.CallToolResult{}, fmt.Errorf("unknown backend %q", backendName)
+}
+
+func (g *Gateway) observabilityStatus(ctx context.Context) (mcp.CallToolResult, error) {
+	client := &http.Client{
+		Timeout: 5 * time.Second,
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			return http.ErrUseLastResponse // don't follow redirects
+		},
+	}
+
+	targetURL := "https://observability.svc.plus/"
+	req, err := http.NewRequestWithContext(ctx, http.MethodHead, targetURL, nil)
+	live := false
+	statusCode := 0
+	latencyMs := int64(0)
+	if err == nil {
+		start := time.Now()
+		resp, reqErr := client.Do(req)
+		if reqErr == nil {
+			statusCode = resp.StatusCode
+			live = resp.StatusCode >= 200 && resp.StatusCode < 500
+			latencyMs = time.Since(start).Milliseconds()
+			_ = resp.Body.Close()
+		}
+	}
+
+	data := map[string]any{
+		"service": "observability.svc.plus",
+		"gateway": map[string]any{
+			"url":          targetURL,
+			"live":         live,
+			"httpStatus":   statusCode,
+			"latencyMs":    latencyMs,
+			"reverseProxy": "Caddy",
+		},
+		"datasources": []map[string]any{
+			{
+				"name":       "VictoriaMetrics (Metrics TSDB)",
+				"type":       "metrics",
+				"ingest_url": "https://observability.svc.plus/ingest/metrics/api/v1/write",
+				"query_url":  "https://observability.svc.plus/vmetrics/",
+				"mcp_url":    "https://observability.svc.plus/mcp/v1/metrics/mcp",
+				"port":       8428,
+				"protocol":   "Prometheus Remote Write / MetricsQL",
+			},
+			{
+				"name":       "VictoriaLogs (High-Cardinality Logs)",
+				"type":       "logs",
+				"ingest_url": "https://observability.svc.plus/ingest/logs/insert/jsonline",
+				"query_url":  "https://observability.svc.plus/vlogs/",
+				"mcp_url":    "https://observability.svc.plus/mcp/v1/logs/mcp",
+				"port":       9428,
+				"protocol":   "LogsQL / JSON Lines / OTLP",
+			},
+			{
+				"name":       "VictoriaTraces (Distributed Traces)",
+				"type":       "traces",
+				"ingest_url": "https://observability.svc.plus/ingest/otlp/v1/traces",
+				"query_url":  "https://observability.svc.plus/vtraces/",
+				"mcp_url":    "https://observability.svc.plus/mcp/v1/traces/mcp",
+				"port":       10428,
+				"protocol":   "OTLP/HTTP / TraceQL",
+			},
+			{
+				"name":     "Grafana (Visual Dashboards & Alerts)",
+				"type":     "visualization",
+				"ui_url":   "https://observability.svc.plus/grafana/",
+				"mcp_url":  "https://observability.svc.plus/mcp/v1/grafana/mcp",
+				"port":     3000,
+				"protocol": "HTTP / JSON Dashboard Provisioning",
+			},
+			{
+				"name":      "Blackbox Exporter (Synthetic Probes)",
+				"type":      "synthetic",
+				"probe_url": "https://observability.svc.plus/blackbox/",
+				"port":      9115,
+				"protocol":  "HTTP/TCP ICMP Probing",
+			},
+		},
+		"repositories": map[string]string{
+			"gitops":                "https://github.com/ai-workspace-infra/gitops.git",
+			"playbooks":             "https://github.com/ai-workspace-infra/playbooks.git",
+			"iac_modules":           "https://github.com/ai-workspace-infra/iac_modules.git",
+			"Platform-Orchestrator": "https://github.com/ai-workspace-infra/Platform-Orchestrator.git",
+			"knowledge":             "https://github.com/ai-workspace-services/knowledge/tree/main/docs/reference",
+		},
+		"vault_secret_paths": []string{
+			"kv/<env>/platform/observability",
+			"kv/data/observability/mcp",
+			"kv/data/prod/ulighthost-xconnect/observability.svc.plus",
+		},
+	}
+	return mcp.JSONResult(data)
 }
 
 func (g *Gateway) health(ctx context.Context) (mcp.CallToolResult, error) {

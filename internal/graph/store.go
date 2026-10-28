@@ -33,7 +33,9 @@ type Store struct {
 }
 
 func NewStore() *Store {
-	return &Store{nodes: make(map[string]Node), edges: make(map[string]Edge)}
+	s := &Store{nodes: make(map[string]Node), edges: make(map[string]Edge)}
+	s.SeedDefaults()
+	return s
 }
 
 func (s *Store) UpsertNode(node Node) {

@@ -16,3 +16,22 @@ func TestQueryReturnsMatchingNodesAndRelatedEdges(t *testing.T) {
 		t.Fatalf("unexpected edges: %#v", result.Edges)
 	}
 }
+
+func TestSeedDefaultsContainsObservabilityAndRepositories(t *testing.T) {
+	store := NewStore()
+
+	obsResult := store.Query("observability")
+	if len(obsResult.Nodes) == 0 {
+		t.Fatal("expected observability nodes to be seeded")
+	}
+
+	gitopsResult := store.Query("gitops")
+	if len(gitopsResult.Nodes) == 0 {
+		t.Fatal("expected gitops node to be seeded")
+	}
+
+	playbooksResult := store.Query("playbooks")
+	if len(playbooksResult.Nodes) == 0 {
+		t.Fatal("expected playbooks node to be seeded")
+	}
+}

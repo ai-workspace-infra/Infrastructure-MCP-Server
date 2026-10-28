@@ -19,12 +19,16 @@ type ServerConfig struct {
 }
 
 type BackendConfig struct {
-	Name       string            `json:"name"`
-	Capability string            `json:"capability"`
-	Command    string            `json:"command"`
-	Args       []string          `json:"args"`
-	Env        map[string]string `json:"env"`
-	Enabled    *bool             `json:"enabled,omitempty"`
+	Name        string            `json:"name"`
+	Capability  string            `json:"capability"`
+	Command     string            `json:"command,omitempty"`
+	Args        []string          `json:"args,omitempty"`
+	URL         string            `json:"url,omitempty"`
+	Transport   string            `json:"transport,omitempty"`
+	BearerToken string            `json:"bearer_token,omitempty"`
+	Headers     map[string]string `json:"headers,omitempty"`
+	Env         map[string]string `json:"env,omitempty"`
+	Enabled     *bool             `json:"enabled,omitempty"`
 }
 
 func Default() Config {
@@ -72,8 +76,8 @@ func (c Config) Validate() error {
 			return fmt.Errorf("duplicate backend name %q", backend.Name)
 		}
 		seen[backend.Name] = struct{}{}
-		if backend.Command == "" {
-			return fmt.Errorf("backend %q: command must not be empty", backend.Name)
+		if backend.Command == "" && backend.URL == "" {
+			return fmt.Errorf("backend %q: either command or url must be specified", backend.Name)
 		}
 	}
 	return nil
