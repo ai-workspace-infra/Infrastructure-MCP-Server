@@ -53,12 +53,23 @@ func (s *Server) Serve(ctx context.Context, input io.Reader, output io.Writer) e
 	}
 }
 
-func (s *Server) handle(ctx context.Context, writer *bufio.Writer, request Request) error {
-	if len(request.ID) == 0 && request.Method == "notifications/initialized" {
+func (s *Server) handle(ctx context.Context, writer io.Writer, request Request) error {
+	response, err := s.HandleRequest(ctx, request)
+	if err != nil {
+		return err
+	}
+	if response.JSONRPC == "" && response.ID == nil {
 		return nil
 	}
+	return writeResponse(writer, response)
+}
+
+func (s *Server) HandleRequest(ctx context.Context, request Request) (Response, error) {
+	if len(request.ID) == 0 && request.Method == "notifications/initialized" {
+		return Response{}, nil
+	}
 	if len(request.ID) == 0 {
-		return nil
+		return Response{}, nil
 	}
 
 	response := Response{JSONRPC: "2.0", ID: request.ID}
@@ -96,10 +107,10 @@ func (s *Server) handle(ctx context.Context, writer *bufio.Writer, request Reque
 	default:
 		response.Error = &ResponseError{Code: -32601, Message: fmt.Sprintf("method %q not found", request.Method)}
 	}
-	return writeResponse(writer, response)
+	return response, nil
 }
 
-func writeResponse(writer *bufio.Writer, response Response) error {
+func writeResponse(writer io.Writer, response Response) error {
 	data, err := json.Marshal(response)
 	if err != nil {
 		return err
@@ -107,5 +118,8 @@ func writeResponse(writer *bufio.Writer, response Response) error {
 	if _, err := writer.Write(append(data, '\n')); err != nil {
 		return err
 	}
-	return writer.Flush()
+	if flusher, ok := writer.(interface{ Flush() error }); ok {
+		return flusher.Flush()
+	}
+	return nil
 }

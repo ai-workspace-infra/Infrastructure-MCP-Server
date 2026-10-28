@@ -75,17 +75,18 @@ func (s *Store) SeedDefaults() {
 		},
 	})
 
-	// 2. Observability MCP Adapters
+	// 2. Observability MCP Adapters (Decoupled on mcp.svc.plus, deployed on dev-k3s-v5)
 	s.UpsertNode(Node{
 		ID:   "mcp/grafana",
 		Kind: "mcp_server",
 		Name: "Grafana MCP Adapter",
 		Attributes: map[string]any{
-			"url":         "https://observability.svc.plus/mcp/v1/grafana/mcp",
+			"url":         "https://mcp.svc.plus/v1/grafana/sse",
 			"capability":  "observability",
-			"transport":   "streamable-http",
+			"transport":   "sse",
 			"role":        "Dashboards, datasources, and alert status extraction",
-			"access_mode": "read-only (--disable-write)",
+			"access_mode": "read-only (--disable-write --disable-admin)",
+			"node":        "dev-k3s-v5",
 		},
 	})
 	s.UpsertNode(Node{
@@ -93,11 +94,12 @@ func (s *Store) SeedDefaults() {
 		Kind: "mcp_server",
 		Name: "VictoriaMetrics MCP Adapter",
 		Attributes: map[string]any{
-			"url":         "https://observability.svc.plus/mcp/v1/metrics/mcp",
+			"url":         "https://mcp.svc.plus/v1/metrics/mcp",
 			"capability":  "observability",
 			"transport":   "streamable-http",
 			"role":        "MetricsQL time series query and metric discovery",
 			"access_mode": "read-only",
+			"node":        "dev-k3s-v5",
 		},
 	})
 	s.UpsertNode(Node{
@@ -105,11 +107,12 @@ func (s *Store) SeedDefaults() {
 		Kind: "mcp_server",
 		Name: "VictoriaLogs MCP Adapter",
 		Attributes: map[string]any{
-			"url":         "https://observability.svc.plus/mcp/v1/logs/mcp",
+			"url":         "https://mcp.svc.plus/v1/logs/mcp",
 			"capability":  "observability",
 			"transport":   "streamable-http",
 			"role":        "LogsQL high-cardinality log search and stream inspection",
 			"access_mode": "read-only",
+			"node":        "dev-k3s-v5",
 		},
 	})
 	s.UpsertNode(Node{
@@ -117,11 +120,47 @@ func (s *Store) SeedDefaults() {
 		Kind: "mcp_server",
 		Name: "VictoriaTraces MCP Adapter",
 		Attributes: map[string]any{
-			"url":         "https://observability.svc.plus/mcp/v1/traces/mcp",
+			"url":         "https://mcp.svc.plus/v1/traces/mcp",
 			"capability":  "observability",
 			"transport":   "streamable-http",
 			"role":        "Distributed trace retrieval and span bottleneck analysis",
 			"access_mode": "read-only",
+			"node":        "dev-k3s-v5",
+		},
+	})
+
+	// 2.1 Nodes for dev-k3s-v5 and Dedicated MCP Gateways
+	s.UpsertNode(Node{
+		ID:   "host/dev-k3s-v5",
+		Kind: "host",
+		Name: "dev-k3s-v5.svc.plus",
+		Attributes: map[string]any{
+			"provider": "akamai-cloud",
+			"region":   "jp-tyo-3",
+			"type":     "g6-standard-2 (2C4G)",
+			"role":     "Dev K3s cluster node hosting temporary SIT lanes and MCP gateways",
+		},
+	})
+	s.UpsertNode(Node{
+		ID:   "service/mcp-server",
+		Kind: "service",
+		Name: "mcp-server.svc.plus",
+		Attributes: map[string]any{
+			"fqdn":        "mcp-server.svc.plus",
+			"description": "Central Infrastructure & CMDB MCP Aggregation Gateway",
+			"node":        "dev-k3s-v5",
+			"transport":   "SSE / Streamable HTTP (:8080)",
+		},
+	})
+	s.UpsertNode(Node{
+		ID:   "service/observability-mcp",
+		Kind: "service",
+		Name: "mcp.svc.plus",
+		Attributes: map[string]any{
+			"fqdn":        "mcp.svc.plus",
+			"description": "Dedicated Observability 4-MCP Gateway proxying to observability.svc.plus",
+			"node":        "dev-k3s-v5",
+			"transport":   "SSE / Streamable HTTP (:8000-:8003)",
 		},
 	})
 
@@ -212,4 +251,11 @@ func (s *Store) SeedDefaults() {
 
 	s.UpsertEdge(Edge{From: "service/vault", To: "service/observability-gateway", Type: "provides_credentials"})
 	s.UpsertEdge(Edge{From: "service/iam", To: "service/observability-gateway", Type: "provides_auth"})
+
+	// 6. dev-k3s-v5 Edge Deployments & Aggregation
+	s.UpsertEdge(Edge{From: "service/mcp-server", To: "host/dev-k3s-v5", Type: "deployed_on"})
+	s.UpsertEdge(Edge{From: "service/observability-mcp", To: "host/dev-k3s-v5", Type: "deployed_on"})
+	s.UpsertEdge(Edge{From: "service/mcp-server", To: "service/observability-mcp", Type: "aggregates"})
+	s.UpsertEdge(Edge{From: "repo/gitops", To: "service/mcp-server", Type: "manages_via_flux"})
+	s.UpsertEdge(Edge{From: "repo/gitops", To: "service/observability-mcp", Type: "manages_via_flux"})
 }

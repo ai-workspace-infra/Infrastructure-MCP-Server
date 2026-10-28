@@ -398,10 +398,10 @@ configure_mcp_server() {
     "version": "${PINNED_MCP_VERSION}"
   },
   "backends": [
-    {"name": "observability-grafana", "capability": "observability", "transport": "streamable-http", "url": "https://observability.svc.plus/mcp/v1/grafana/mcp", "enabled": false},
-    {"name": "observability-metrics", "capability": "observability", "transport": "streamable-http", "url": "https://observability.svc.plus/mcp/v1/metrics/mcp", "enabled": false},
-    {"name": "observability-logs", "capability": "observability", "transport": "streamable-http", "url": "https://observability.svc.plus/mcp/v1/logs/mcp", "enabled": false},
-    {"name": "observability-traces", "capability": "observability", "transport": "streamable-http", "url": "https://observability.svc.plus/mcp/v1/traces/mcp", "enabled": false},
+    {"name": "observability-grafana", "capability": "observability", "transport": "sse", "url": "https://mcp.svc.plus/v1/grafana/sse", "enabled": false},
+    {"name": "observability-metrics", "capability": "observability", "transport": "streamable-http", "url": "https://mcp.svc.plus/v1/metrics/mcp", "enabled": false},
+    {"name": "observability-logs", "capability": "observability", "transport": "streamable-http", "url": "https://mcp.svc.plus/v1/logs/mcp", "enabled": false},
+    {"name": "observability-traces", "capability": "observability", "transport": "streamable-http", "url": "https://mcp.svc.plus/v1/traces/mcp", "enabled": false},
     {"name": "kubernetes", "capability": "runtime", "command": "npx", "args": ["-y", "<kubernetes-mcp-package>"], "enabled": false},
     {"name": "helm", "capability": "runtime", "command": "npx", "args": ["-y", "<helm-mcp-package>"], "enabled": false},
     {"name": "netbox", "capability": "cmdb", "command": "uvx", "args": ["<netbox-mcp-package>"], "enabled": false},
@@ -420,10 +420,10 @@ EOF
     "version": "${PINNED_MCP_VERSION}"
   },
   "backends": [
-    {"name": "observability-grafana", "capability": "observability", "transport": "streamable-http", "url": "https://observability.svc.plus/mcp/v1/grafana/mcp", "enabled": true},
-    {"name": "observability-metrics", "capability": "observability", "transport": "streamable-http", "url": "https://observability.svc.plus/mcp/v1/metrics/mcp", "enabled": true},
-    {"name": "observability-logs", "capability": "observability", "transport": "streamable-http", "url": "https://observability.svc.plus/mcp/v1/logs/mcp", "enabled": true},
-    {"name": "observability-traces", "capability": "observability", "transport": "streamable-http", "url": "https://observability.svc.plus/mcp/v1/traces/mcp", "enabled": true},
+    {"name": "observability-grafana", "capability": "observability", "transport": "sse", "url": "https://mcp.svc.plus/v1/grafana/sse", "enabled": true},
+    {"name": "observability-metrics", "capability": "observability", "transport": "streamable-http", "url": "https://mcp.svc.plus/v1/metrics/mcp", "enabled": true},
+    {"name": "observability-logs", "capability": "observability", "transport": "streamable-http", "url": "https://mcp.svc.plus/v1/logs/mcp", "enabled": true},
+    {"name": "observability-traces", "capability": "observability", "transport": "streamable-http", "url": "https://mcp.svc.plus/v1/traces/mcp", "enabled": true},
     {"name": "kubernetes", "capability": "runtime", "command": "npx", "args": ["-y", "@modelcontextprotocol/server-kubernetes"], "enabled": true},
     {"name": "helm", "capability": "runtime", "command": "npx", "args": ["-y", "@modelcontextprotocol/server-helm"], "enabled": true},
     {"name": "netbox", "capability": "cmdb", "command": "uvx", "args": ["netbox-mcp"], "enabled": true},
@@ -447,6 +447,7 @@ EOF
 MCP_DOMAIN="${DOMAIN}"
 MCP_SERVICE_TOKEN="${SERVICE_TOKEN}"
 INFRA_MCP_CONFIG="${CONFIG_FILE}"
+MCP_LISTEN_ADDR=":8080"
 EOF
     chmod 600 "$ENV_FILE"
     echo "✓ Generated ${CONFIG_FILE} and ${ENV_FILE}"
@@ -499,7 +500,7 @@ Type=simple
 User=root
 WorkingDirectory=${INSTALL_ROOT}
 EnvironmentFile=-${ENV_FILE}
-ExecStart=${BIN_PATH} -config ${CONFIG_FILE}
+ExecStart=${BIN_PATH} -config ${CONFIG_FILE} -listen :8080
 Restart=always
 RestartSec=5s
 LimitNOFILE=65536

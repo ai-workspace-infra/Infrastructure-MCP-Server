@@ -7,29 +7,29 @@
     {
       "name": "observability-grafana",
       "capability": "observability",
-      "transport": "streamable-http",
-      "url": "https://observability.svc.plus/mcp/v1/grafana/mcp",
+      "transport": "sse",
+      "url": "https://mcp.svc.plus/v1/grafana/sse",
       "enabled": true
     },
     {
       "name": "observability-metrics",
       "capability": "observability",
       "transport": "streamable-http",
-      "url": "https://observability.svc.plus/mcp/v1/metrics/mcp",
+      "url": "https://mcp.svc.plus/v1/metrics/mcp",
       "enabled": true
     },
     {
       "name": "observability-logs",
       "capability": "observability",
       "transport": "streamable-http",
-      "url": "https://observability.svc.plus/mcp/v1/logs/mcp",
+      "url": "https://mcp.svc.plus/v1/logs/mcp",
       "enabled": true
     },
     {
       "name": "observability-traces",
       "capability": "observability",
       "transport": "streamable-http",
-      "url": "https://observability.svc.plus/mcp/v1/traces/mcp",
+      "url": "https://mcp.svc.plus/v1/traces/mcp",
       "enabled": true
     },
     {

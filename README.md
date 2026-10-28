@@ -3,29 +3,31 @@
 Infrastructure MCP Server is a Go gateway for XWorkmate Agent. It aggregates existing MCP servers and exposes a stable infrastructure-facing tool surface across IaC, CMDB, runtime, security, and the Environment Graph.
 
 ```text
-XWorkmate Agent
+XWorkmate Agent / Code Agent (Trae / Cursor)
         |
-Infrastructure MCP Server (Go)
+        +---> Infrastructure MCP Gateway: https://mcp-server.svc.plus (dev-k3s-v5)
+        |     (CMDB Inventory, 15-edge Environment Graph, Safe CLI Execution)
         |
-  +-----+---------+---------+---------+---------------+
-  |     |         |         |         |               |
- IaC  CMDB     Runtime   Security  Observability    Graph
-  |     |         |         |         |             Store
-Terraform NetBox Kubernetes Vault  Grafana / VM       |
-OpenTofu  Inventory Helm           Logs / Traces      |
-Ansible playbook MCP               (observability.    |
-                                    svc.plus)   PostgreSQL/pgvector / QMD
+        +---> Observability MCP Gateway: https://mcp.svc.plus (dev-k3s-v5)
+        |     (Grafana SSE, VictoriaMetrics, VictoriaLogs, VictoriaTraces)
+        |           | (upstream telemetry data)
+        |           v
+        |     https://observability.svc.plus (Central Storage & Visualization)
+        |
+        +---> QMD Memory Hub: QMD + PostgreSQL :15432 (193 Whitepapers & BM25 Fulltext)
 ```
 
 ## Status
 
-This repository contains the initial implementation scaffold:
+This repository contains the production-ready Go implementation:
 
-- MCP stdio server implementing `initialize`, `ping`, `tools/list`, and `tools/call`.
-- Process-based MCP client for reusing downstream servers without reimplementing their domain tools.
-- Namespaced aggregation (`kubernetes.<tool>`, `netbox.<tool>`, etc.).
-- Built-in `infra.backends`, `infra.health`, and `infra.graph.query` tools.
-- Thread-safe in-memory Environment Graph store, ready to be replaced or backed by PostgreSQL/pgvector.
+- Dual-transport MCP server supporting both **stdio** (local IDE) and **HTTP/SSE** (`-listen :8080`, `-base-path /v1`).
+- Deployed via **GitOps + FluxCD** on the **`dev-k3s-v5`** cluster with dedicated domain **`mcp-server.svc.plus`**.
+- Downstream observability integration via decoupled **`mcp.svc.plus`** gateway with central storage at **`https://observability.svc.plus/`**.
+- Process-based and HTTP-based MCP clients for downstream server reuse without reimplementing domain tools.
+- Namespaced aggregation (`kubernetes.<tool>`, `netbox.<tool>`, `grafana.<tool>`, etc.).
+- Built-in `infra.backends`, `infra.health`, `infra.observability.status`, `infra.cmdb.query`, `infra.cmdb.summary`, `infra.cmdb.sync`, `infra.cli.exec`, and `infra.graph.query` tools.
+- Thread-safe in-memory Environment Graph store, backed by PostgreSQL/pgvector and CMDB sync.
 - JSON configuration for downstream MCP processes.
 
 Downstream adapters are intentionally configured rather than hard-coded. This lets the gateway reuse the chosen open-source Kubernetes, Helm, NetBox, Terraform, Vault, and Ansible Playbook MCP implementations while keeping the gateway independent of package-specific APIs.
