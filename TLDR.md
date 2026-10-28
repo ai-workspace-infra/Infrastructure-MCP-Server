@@ -50,26 +50,33 @@ flowchart TD
 
 ## 避坑指南：为什么单服务配置必须带 `"mcpServers"`？
 
-在 **Trae**、**Cherry Studio** 等国内 IDE/客户端的“编辑 MCP 服务”弹窗中：
-* 如果直接粘贴 `{ "url": "..." }` 或 `{ "command": "..." }`，底层解析器会报错：**`当前 JSON 配置中没有解析到 MCP 服务项`**。
-* **原因**：客户端底层严格要求以 `"mcpServers"` 作为根节点进行对象键名解析。
-* **规则**：**无论配置单项还是多项，都必须严格包裹在 `"mcpServers": { "<服务名>": { ... } }` 中！**
+在 **Trae**、**Cherry Studio** 等国内 IDE/客户端的“添加/编辑 MCP 服务”弹窗中：
+1. **根对象限制**：如果直接粘贴 `{ "url": "..." }` 或 `{ "command": "..." }`，底层解析器会报错：**`当前 JSON 配置中没有解析到 MCP 服务项`**。客户端底层严格要求以 `"mcpServers"` 作为根节点进行对象键名解析。
+2. **单服务数量限制**：弹窗底层严格校验 **`Object.keys(mcpServers).length === 1`**。如果在同一个弹窗中粘贴了包含 `infrastructure` 和 `qmd` 两个服务的 JSON，会直接报错拦截：**`该配置被识别为多配置项`**。
+3. **黄金规则**：**一次只添加一个服务！必须分别复制、分别添加！每个服务都严格包裹在独占的 `"mcpServers": { "<单个服务名>": { ... } }` 中！**
 
 ---
 
-## 一、可观测性 4-MCP（远程 Streamable HTTP，待服务端网关就绪）
+## 一、可观测性 4-MCP（远程 SSE 接入规范）
 
-> [!WARNING]
-> **当前验证状态**：❌ **未通过协议验证（服务端未开放 MCP 路由）**
-> 经实测，`https://observability.svc.plus/mcp/v1/{grafana,metrics,logs,traces}/mcp` 目前返回 HTTP 302 重定向至 Grafana 网页（`text/html`），未返回合法 MCP 协议。服务端 Ansible 角色中 `observability_mcp_enabled` 默认为 `false`。
-> **待生产服务端网关完成路由代理上线前，请勿在客户端中启用这 4 个远程端点，以免引起握手超时或 HTML 解析报错。** 以下仅作为服务上线后的标准契约参考。
+> [!NOTE]
+> **服务端网关与只读加固进展**：
+> 经实测排查，已在 [`playbooks` 仓库通过 PR #820](https://github.com/ai-workspace-infra/playbooks/pull/820) 完成服务端核心修复：
+> 1. **前缀对齐**：为 `mcp-grafana` 容器配置 `--base-path /mcp/v1/grafana` 并修正 Caddy 为 `handle` 透传，彻底解决 Grok Bot、Cursor 等自动化 Agent 因相对路径丢失 `/mcp/v1/grafana` 前缀而被 302 拦截的问题；
+> 2. **只读加固**：显式注入官方参数 `--disable-write` 与 `--disable-admin`，彻底剥离写工具（如 `create_datasource`、`install_plugin`、`alerting_rules_write`、`delete_snapshot` 等），守牢只读安全红线；
+> 3. **传输协议定性**：确认为标准 **`sse`** 传输（非单端点 streamable-http）；
+> 4. **凭据安全提醒**：生产环境中切勿在明文配置中直接写死 Basic 密码，建议通过 Vault 动态轮换并注入 Header。
 
-### 1. `observability-grafana`（大盘、告警与面板）
+### 1. `observability-grafana`（大盘、告警与面板只读检索）
 ```json
 {
   "mcpServers": {
     "observability-grafana": {
-      "url": "https://observability.svc.plus/mcp/v1/grafana/mcp"
+      "type": "sse",
+      "url": "https://observability.svc.plus/mcp/v1/grafana/sse",
+      "headers": {
+        "Authorization": "Basic <vault-injected-base64-credentials>"
+      }
     }
   }
 }
