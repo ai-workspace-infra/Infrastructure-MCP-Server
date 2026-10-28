@@ -30,6 +30,53 @@ This repository contains the initial implementation scaffold:
 
 Downstream adapters are intentionally configured rather than hard-coded. This lets the gateway reuse the chosen open-source Kubernetes, Helm, NetBox, Terraform, Vault, and Ansible Playbook MCP implementations while keeping the gateway independent of package-specific APIs.
 
+## 💡 Code Agent / IDE 客户端 MCP 配置速查 (TL;DR)
+
+针对 **Trae**、**Cursor**、**Cherry Studio**、**Claude Desktop** 及 **观测云 Obsy Agent Teams** 等智能体，请查阅完整配置速查文档：[TLDR.md](TLDR.md)。
+
+> [!TIP]
+> 在各类国内/国际 IDE 客户端的“编辑单个 MCP 服务”弹窗中，底层解析器均严格要求保留最外层的 `"mcpServers"` 结构，否则会报错提示“未解析到 MCP 服务项”。
+
+### 1. 可观测性 4-MCP（远程 Streamable HTTP 直连）
+* **Grafana**:
+  ```json
+  { "mcpServers": { "observability-grafana": { "url": "https://observability.svc.plus/mcp/v1/grafana/mcp" } } }
+  ```
+* **VictoriaMetrics**:
+  ```json
+  { "mcpServers": { "observability-metrics": { "url": "https://observability.svc.plus/mcp/v1/metrics/mcp" } } }
+  ```
+* **VictoriaLogs**:
+  ```json
+  { "mcpServers": { "observability-logs": { "url": "https://observability.svc.plus/mcp/v1/logs/mcp" } } }
+  ```
+* **VictoriaTraces**:
+  ```json
+  { "mcpServers": { "observability-traces": { "url": "https://observability.svc.plus/mcp/v1/traces/mcp" } } }
+  ```
+
+### 2. Infrastructure-MCP-Server（多云 CMDB 与 15 边拓扑）
+```json
+{
+  "mcpServers": {
+    "infrastructure": {
+      "command": "/Users/shenlan/.local/bin/run-infrastructure-mcp.sh"
+    }
+  }
+}
+```
+
+### 3. QMD MCP Server（193 篇白皮书 & PG 15432 记忆）
+```json
+{
+  "mcpServers": {
+    "qmd": {
+      "command": "/Users/shenlan/.local/bin/run-qmd-mcp.sh"
+    }
+  }
+}
+```
+
 ## 🚀 快速开始
 
 在 Debian 12+ 或 Ubuntu 22.04+ 服务器上，可使用一键安装脚本部署 Infrastructure-MCP-Server 及其 Caddy HTTPS 反向代理。
