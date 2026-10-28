@@ -7,14 +7,14 @@ XWorkmate Agent
         |
 Infrastructure MCP Server (Go)
         |
-  +-----+---------+---------+---------+
-  |     |         |         |         |
- IaC  CMDB     Runtime   Security  Graph
-  |     |         |         |         |
-Terraform NetBox Kubernetes Vault  Store
-OpenTofu  Inventory Helm              |
-Ansible playbook MCP                  |
-                                PostgreSQL/pgvector (planned)
+  +-----+---------+---------+---------+---------------+
+  |     |         |         |         |               |
+ IaC  CMDB     Runtime   Security  Observability    Graph
+  |     |         |         |         |             Store
+Terraform NetBox Kubernetes Vault  Grafana / VM       |
+OpenTofu  Inventory Helm           Logs / Traces      |
+Ansible playbook MCP               (observability.    |
+                                    svc.plus)   PostgreSQL/pgvector / QMD
 ```
 
 ## Status

@@ -16,3 +16,36 @@ func TestQueryReturnsMatchingNodesAndRelatedEdges(t *testing.T) {
 		t.Fatalf("unexpected edges: %#v", result.Edges)
 	}
 }
+
+func TestSeedDefaultsContainsObservabilityAndRepositories(t *testing.T) {
+	store := NewStore()
+
+	obsResult := store.Query("observability")
+	if len(obsResult.Nodes) == 0 {
+		t.Fatal("expected observability nodes to be seeded")
+	}
+
+	gitopsResult := store.Query("gitops")
+	if len(gitopsResult.Nodes) == 0 {
+		t.Fatal("expected gitops node to be seeded")
+	}
+
+	playbooksResult := store.Query("playbooks")
+	if len(playbooksResult.Nodes) == 0 {
+		t.Fatal("expected playbooks node to be seeded")
+	}
+
+	center, edges, connectedNodes, found := store.Subgraph("service/observability-gateway")
+	if !found {
+		t.Fatal("expected service/observability-gateway to be found")
+	}
+	if center.Name != "observability.svc.plus" {
+		t.Fatalf("unexpected center node name: %s", center.Name)
+	}
+	if len(edges) != 15 {
+		t.Fatalf("expected exactly 15 edges connected to service/observability-gateway, got %d", len(edges))
+	}
+	if len(connectedNodes) < 10 {
+		t.Fatalf("expected at least 10 connected nodes, got %d", len(connectedNodes))
+	}
+}

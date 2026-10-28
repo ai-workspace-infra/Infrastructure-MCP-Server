@@ -4,12 +4,96 @@
     "version": "0.1.0"
   },
   "backends": [
-    {"name": "kubernetes", "capability": "runtime", "command": "npx", "args": ["-y", "<kubernetes-mcp-package>"], "enabled": false},
-    {"name": "helm", "capability": "runtime", "command": "npx", "args": ["-y", "<helm-mcp-package>"], "enabled": false},
-    {"name": "netbox", "capability": "cmdb", "command": "uvx", "args": ["<netbox-mcp-package>"], "enabled": false},
-    {"name": "terraform", "capability": "iac", "command": "<terraform-mcp-command>", "args": [], "enabled": false},
-    {"name": "opentofu", "capability": "iac", "command": "<opentofu-mcp-command>", "args": [], "enabled": false},
-    {"name": "vault", "capability": "security", "command": "uvx", "args": ["<vault-mcp-package>"], "enabled": false},
-    {"name": "ansible", "capability": "iac", "command": "<ansible-playbook-mcp-command>", "args": [], "enabled": false}
+    {
+      "name": "observability-grafana",
+      "capability": "observability",
+      "transport": "streamable-http",
+      "url": "https://observability.svc.plus/mcp/v1/grafana/mcp",
+      "enabled": true
+    },
+    {
+      "name": "observability-metrics",
+      "capability": "observability",
+      "transport": "streamable-http",
+      "url": "https://observability.svc.plus/mcp/v1/metrics/mcp",
+      "enabled": true
+    },
+    {
+      "name": "observability-logs",
+      "capability": "observability",
+      "transport": "streamable-http",
+      "url": "https://observability.svc.plus/mcp/v1/logs/mcp",
+      "enabled": true
+    },
+    {
+      "name": "observability-traces",
+      "capability": "observability",
+      "transport": "streamable-http",
+      "url": "https://observability.svc.plus/mcp/v1/traces/mcp",
+      "enabled": true
+    },
+    {
+      "name": "kubernetes",
+      "capability": "runtime",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-kubernetes"],
+      "enabled": false
+    },
+    {
+      "name": "helm",
+      "capability": "runtime",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-helm"],
+      "enabled": false
+    },
+    {
+      "name": "netbox",
+      "capability": "cmdb",
+      "command": "uvx",
+      "args": ["netbox-mcp"],
+      "enabled": false
+    },
+    {
+      "name": "terraform",
+      "capability": "iac",
+      "command": "terraform-mcp",
+      "args": [],
+      "enabled": false
+    },
+    {
+      "name": "opentofu",
+      "capability": "iac",
+      "command": "opentofu-mcp",
+      "args": [],
+      "enabled": false
+    },
+    {
+      "name": "vault",
+      "capability": "security",
+      "command": "uvx",
+      "args": ["vault-mcp"],
+      "enabled": false
+    },
+    {
+      "name": "ansible",
+      "capability": "iac",
+      "command": "ansible-playbook-mcp",
+      "args": [],
+      "enabled": false
+    },
+    {
+      "name": "github",
+      "capability": "scm",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-github"],
+      "enabled": false
+    },
+    {
+      "name": "cloudflare",
+      "capability": "dns",
+      "command": "npx",
+      "args": ["-y", "@cloudflare/mcp-server-cloudflare"],
+      "enabled": false
+    }
   ]
 }
