@@ -73,7 +73,7 @@ flowchart TD
   "mcpServers": {
     "observability-grafana": {
       "type": "sse",
-      "url": "https://mcp.svc.plus/v1/grafana/sse",
+      "url": "https://mcp-server.svc.plus/v1/grafana/sse",
       "headers": {
         "Authorization": "Basic <vault-injected-base64-credentials>"
       }
@@ -87,7 +87,7 @@ flowchart TD
 {
   "mcpServers": {
     "observability-metrics": {
-      "url": "https://mcp.svc.plus/v1/metrics/mcp"
+      "url": "https://mcp-server.svc.plus/v1/metrics/mcp"
     }
   }
 }
@@ -98,7 +98,7 @@ flowchart TD
 {
   "mcpServers": {
     "observability-logs": {
-      "url": "https://mcp.svc.plus/v1/logs/mcp"
+      "url": "https://mcp-server.svc.plus/v1/logs/mcp"
     }
   }
 }
@@ -109,7 +109,7 @@ flowchart TD
 {
   "mcpServers": {
     "observability-traces": {
-      "url": "https://mcp.svc.plus/v1/traces/mcp"
+      "url": "https://mcp-server.svc.plus/v1/traces/mcp"
     }
   }
 }

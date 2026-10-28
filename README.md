@@ -5,16 +5,14 @@ Infrastructure MCP Server is a Go gateway for XWorkmate Agent. It aggregates exi
 ```text
 XWorkmate Agent / Code Agent (Trae / Cursor)
         |
-        +---> Infrastructure MCP Gateway: https://mcp-server.svc.plus (dev-k3s-v5)
-        |     (CMDB Inventory, 15-edge Environment Graph, Safe CLI Execution)
-        |
-        +---> Observability MCP Gateway: https://mcp.svc.plus (dev-k3s-v5)
-        |     (Grafana SSE, VictoriaMetrics, VictoriaLogs, VictoriaTraces)
-        |           | (upstream telemetry data)
+        +---> Unified MCP Gateway: https://mcp-server.svc.plus (dev-k3s-v5)
+        |     |-- /sse, /mcp (CMDB Inventory, 15-edge Environment Graph, Safe CLI)
+        |     \-- /v1/grafana/sse (Grafana SSE Read-Only Viewer)
+        |           | (upstream telemetry query)
         |           v
         |     https://observability.svc.plus (Central Storage & Visualization)
         |
-        +---> QMD Memory Hub: QMD + PostgreSQL :15432 (193 Whitepapers & BM25 Fulltext)
+        +---> QMD Memory Hub: QMD + PostgreSQL :15432 (194 Whitepapers & BM25 Fulltext)
 ```
 
 ## Status
@@ -22,8 +20,8 @@ XWorkmate Agent / Code Agent (Trae / Cursor)
 This repository contains the production-ready Go implementation:
 
 - Dual-transport MCP server supporting both **stdio** (local IDE) and **HTTP/SSE** (`-listen :8080`, `-base-path /v1`).
-- Deployed via **GitOps + FluxCD** on the **`dev-k3s-v5`** cluster with dedicated domain **`mcp-server.svc.plus`**.
-- Downstream observability integration via decoupled **`mcp.svc.plus`** gateway with central storage at **`https://observability.svc.plus/`**.
+- Deployed via **GitOps + FluxCD** on the **`dev-k3s-v5`** cluster with single dedicated domain **`mcp-server.svc.plus`**.
+- Unified downstream observability integration on **`mcp-server.svc.plus/v1`** with upstream central telemetry storage at **`https://observability.svc.plus/`**.
 - Process-based and HTTP-based MCP clients for downstream server reuse without reimplementing domain tools.
 - Namespaced aggregation (`kubernetes.<tool>`, `netbox.<tool>`, `grafana.<tool>`, etc.).
 - Built-in `infra.backends`, `infra.health`, `infra.observability.status`, `infra.cmdb.query`, `infra.cmdb.summary`, `infra.cmdb.sync`, `infra.cli.exec`, and `infra.graph.query` tools.
