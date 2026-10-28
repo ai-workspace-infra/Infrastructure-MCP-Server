@@ -34,39 +34,51 @@ Downstream adapters are intentionally configured rather than hard-coded. This le
 
 针对 **Trae**、**Cursor**、**Cherry Studio**、**Claude Desktop** 及 **观测云 Obsy Agent Teams** 等智能体，请查阅完整配置速查文档：[TLDR.md](TLDR.md)。
 
-> [!TIP]
-> 在各类国内/国际 IDE 客户端的“编辑单个 MCP 服务”弹窗中，底层解析器均严格要求保留最外层的 `"mcpServers"` 结构，否则会报错提示“未解析到 MCP 服务项”。
+> [!IMPORTANT]
+> **客户端实测验证结论**：
+> * ✅ **Infrastructure**：握手通过，稳定提供 8 个 CMDB / 拓扑查询工具。
+> * ✅ **QMD**：握手通过，提供 23 个工具，当前本地 PG 15432 已完整索引 193 篇白皮书并生效 **BM25 词法全文检索**（外部向量 API Key 注入后可激活向量计算）。
+> * ❌ **可观测性 4-MCP**：未通过协议验证。请求返回 HTTP 302 重定向至 Grafana 网页（`text/html`），服务端 Caddy 尚未开放 MCP 代理。**客户端请暂缓挂载这 4 个远程地址**。
+>
+> **避坑提示**：在各类 IDE 客户端的单服务配置中，底层均强制要求保留最外层的 `"mcpServers"` 结构，否则报错提示“未解析到 MCP 服务项”。
 
-### 1. 可观测性 4-MCP（远程 Streamable HTTP 直连）
-* **Grafana**:
-  ```json
-  { "mcpServers": { "observability-grafana": { "url": "https://observability.svc.plus/mcp/v1/grafana/mcp" } } }
-  ```
-* **VictoriaMetrics**:
-  ```json
-  { "mcpServers": { "observability-metrics": { "url": "https://observability.svc.plus/mcp/v1/metrics/mcp" } } }
-  ```
-* **VictoriaLogs**:
-  ```json
-  { "mcpServers": { "observability-logs": { "url": "https://observability.svc.plus/mcp/v1/logs/mcp" } } }
-  ```
-* **VictoriaTraces**:
-  ```json
-  { "mcpServers": { "observability-traces": { "url": "https://observability.svc.plus/mcp/v1/traces/mcp" } } }
-  ```
+### 1. Infrastructure-MCP-Server（多云 CMDB 与 15 边拓扑，实测通过）
 
-### 2. Infrastructure-MCP-Server（多云 CMDB 与 15 边拓扑）
+**标准原生配置（推荐）：**
 ```json
 {
   "mcpServers": {
     "infrastructure": {
-      "command": "/Users/shenlan/.local/bin/run-infrastructure-mcp.sh"
+      "args": [
+        "-config",
+        "/Users/shenlan/.config/infrastructure-mcp-server/config.json"
+      ],
+      "command": "/Users/shenlan/.local/bin/infrastructure-mcp-server"
     }
   }
 }
 ```
 
-### 3. QMD MCP Server（193 篇白皮书 & PG 15432 记忆）
+*表单模式填写*：
+* **类型 (Type)**：`STDIO`
+* **命令 (Command)**：`/Users/shenlan/.local/bin/infrastructure-mcp-server`
+* **参数 (Args)**：
+  * `-config`
+  * `/Users/shenlan/.config/infrastructure-mcp-server/config.json`
+
+> 💡 **备选 0 参数 Wrapper 模式**（防客户端丢参数）：
+> ```json
+> {
+>   "mcpServers": {
+>     "infrastructure": {
+>       "command": "/Users/shenlan/.local/bin/run-infrastructure-mcp.sh"
+>     }
+>   }
+> }
+> ```
+
+### 2. QMD MCP Server（193 篇白皮书 & SOP 记忆，实测通过）
+
 ```json
 {
   "mcpServers": {
@@ -76,6 +88,12 @@ Downstream adapters are intentionally configured rather than hard-coded. This le
   }
 }
 ```
+
+### 3. 可观测性 4-MCP（待服务端网关上线，暂缓挂载）
+* **Grafana**: `{ "mcpServers": { "observability-grafana": { "url": "https://observability.svc.plus/mcp/v1/grafana/mcp" } } }`
+* **VictoriaMetrics**: `{ "mcpServers": { "observability-metrics": { "url": "https://observability.svc.plus/mcp/v1/metrics/mcp" } } }`
+* **VictoriaLogs**: `{ "mcpServers": { "observability-logs": { "url": "https://observability.svc.plus/mcp/v1/logs/mcp" } } }`
+* **VictoriaTraces**: `{ "mcpServers": { "observability-traces": { "url": "https://observability.svc.plus/mcp/v1/traces/mcp" } } }`
 
 ## 🚀 快速开始
 
