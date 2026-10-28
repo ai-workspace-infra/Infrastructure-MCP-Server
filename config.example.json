@@ -80,6 +80,20 @@
       "command": "ansible-playbook-mcp",
       "args": [],
       "enabled": false
+    },
+    {
+      "name": "github",
+      "capability": "scm",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-github"],
+      "enabled": false
+    },
+    {
+      "name": "cloudflare",
+      "capability": "dns",
+      "command": "npx",
+      "args": ["-y", "@cloudflare/mcp-server-cloudflare"],
+      "enabled": false
     }
   ]
 }

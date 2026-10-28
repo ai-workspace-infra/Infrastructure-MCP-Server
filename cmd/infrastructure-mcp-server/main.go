@@ -8,6 +8,7 @@ import (
 	"os/signal"
 	"syscall"
 
+	"github.com/ai-workspace-infra/Infrastructure-MCP-Server/internal/cmdb"
 	"github.com/ai-workspace-infra/Infrastructure-MCP-Server/internal/config"
 	"github.com/ai-workspace-infra/Infrastructure-MCP-Server/internal/gateway"
 	"github.com/ai-workspace-infra/Infrastructure-MCP-Server/internal/graph"
@@ -35,7 +36,9 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	server := mcp.NewServer(gateway.New(cfg, graph.NewStore()))
+	graphStore := graph.NewStore()
+	cmdbStore := cmdb.NewStore(graphStore, "")
+	server := mcp.NewServer(gateway.New(cfg, graphStore, cmdbStore))
 	if err := server.Serve(ctx, os.Stdin, os.Stdout); err != nil && ctx.Err() == nil {
 		fmt.Fprintf(os.Stderr, "serve MCP: %v\n", err)
 		os.Exit(1)

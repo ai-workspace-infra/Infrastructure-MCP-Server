@@ -34,4 +34,18 @@ func TestSeedDefaultsContainsObservabilityAndRepositories(t *testing.T) {
 	if len(playbooksResult.Nodes) == 0 {
 		t.Fatal("expected playbooks node to be seeded")
 	}
+
+	center, edges, connectedNodes, found := store.Subgraph("service/observability-gateway")
+	if !found {
+		t.Fatal("expected service/observability-gateway to be found")
+	}
+	if center.Name != "observability.svc.plus" {
+		t.Fatalf("unexpected center node name: %s", center.Name)
+	}
+	if len(edges) != 15 {
+		t.Fatalf("expected exactly 15 edges connected to service/observability-gateway, got %d", len(edges))
+	}
+	if len(connectedNodes) < 10 {
+		t.Fatalf("expected at least 10 connected nodes, got %d", len(connectedNodes))
+	}
 }
