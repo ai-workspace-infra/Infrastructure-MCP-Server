@@ -73,7 +73,7 @@ flowchart TD
   "mcpServers": {
     "observability-grafana": {
       "type": "sse",
-      "url": "https://observability.svc.plus/mcp/v1/grafana/sse",
+      "url": "https://mcp.svc.plus/v1/grafana/sse",
       "headers": {
         "Authorization": "Basic <vault-injected-base64-credentials>"
       }
@@ -87,7 +87,7 @@ flowchart TD
 {
   "mcpServers": {
     "observability-metrics": {
-      "url": "https://observability.svc.plus/mcp/v1/metrics/mcp"
+      "url": "https://mcp.svc.plus/v1/metrics/mcp"
     }
   }
 }
@@ -98,7 +98,7 @@ flowchart TD
 {
   "mcpServers": {
     "observability-logs": {
-      "url": "https://observability.svc.plus/mcp/v1/logs/mcp"
+      "url": "https://mcp.svc.plus/v1/logs/mcp"
     }
   }
 }
@@ -109,7 +109,7 @@ flowchart TD
 {
   "mcpServers": {
     "observability-traces": {
-      "url": "https://observability.svc.plus/mcp/v1/traces/mcp"
+      "url": "https://mcp.svc.plus/v1/traces/mcp"
     }
   }
 }
@@ -118,6 +118,20 @@ flowchart TD
 ---
 
 ## 二、Infrastructure-MCP-Server（CMDB 对账与 15 依赖边图拓扑）
+
+> 💡 **部署拓扑**：本服务已通过 GitOps + FluxCD 部署于 **`dev-k3s-v5`** 节点，分配独立域名 **`mcp-server.svc.plus`**，提供远程 SSE/HTTP 端点与本地 CLI STDIO 双重支持。
+
+### 0. 远程独立域名接入（推荐云端 / 容器客户端使用）
+```json
+{
+  "mcpServers": {
+    "infrastructure": {
+      "type": "sse",
+      "url": "https://mcp-server.svc.plus/sse"
+    }
+  }
+}
+```
 
 > [!TIP]
 > **验证状态**：✅ **实测通过**。原生命令行与 Wrapper 两种模式均已完成 MCP 握手，成功初始化 8 个核心工具（`infra.cmdb.query`、`infra.cmdb.summary`、`infra.graph.query`、`infra.cli.exec` 等）。
