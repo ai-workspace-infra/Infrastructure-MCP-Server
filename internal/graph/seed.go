@@ -75,13 +75,13 @@ func (s *Store) SeedDefaults() {
 		},
 	})
 
-	// 2. Observability MCP Adapters (Decoupled on mcp.svc.plus, deployed on dev-k3s-v5)
+	// 2. Observability MCP Adapters (Unified on mcp-server.svc.plus, deployed on dev-k3s-v5)
 	s.UpsertNode(Node{
 		ID:   "mcp/grafana",
 		Kind: "mcp_server",
 		Name: "Grafana MCP Adapter",
 		Attributes: map[string]any{
-			"url":         "https://mcp.svc.plus/v1/grafana/sse",
+			"url":         "https://mcp-server.svc.plus/v1/grafana/sse",
 			"capability":  "observability",
 			"transport":   "sse",
 			"role":        "Dashboards, datasources, and alert status extraction",
@@ -94,7 +94,7 @@ func (s *Store) SeedDefaults() {
 		Kind: "mcp_server",
 		Name: "VictoriaMetrics MCP Adapter",
 		Attributes: map[string]any{
-			"url":         "https://mcp.svc.plus/v1/metrics/mcp",
+			"url":         "https://mcp-server.svc.plus/v1/metrics/mcp",
 			"capability":  "observability",
 			"transport":   "streamable-http",
 			"role":        "MetricsQL time series query and metric discovery",
@@ -107,7 +107,7 @@ func (s *Store) SeedDefaults() {
 		Kind: "mcp_server",
 		Name: "VictoriaLogs MCP Adapter",
 		Attributes: map[string]any{
-			"url":         "https://mcp.svc.plus/v1/logs/mcp",
+			"url":         "https://mcp-server.svc.plus/v1/logs/mcp",
 			"capability":  "observability",
 			"transport":   "streamable-http",
 			"role":        "LogsQL high-cardinality log search and stream inspection",
@@ -120,7 +120,7 @@ func (s *Store) SeedDefaults() {
 		Kind: "mcp_server",
 		Name: "VictoriaTraces MCP Adapter",
 		Attributes: map[string]any{
-			"url":         "https://mcp.svc.plus/v1/traces/mcp",
+			"url":         "https://mcp-server.svc.plus/v1/traces/mcp",
 			"capability":  "observability",
 			"transport":   "streamable-http",
 			"role":        "Distributed trace retrieval and span bottleneck analysis",
@@ -147,20 +147,20 @@ func (s *Store) SeedDefaults() {
 		Name: "mcp-server.svc.plus",
 		Attributes: map[string]any{
 			"fqdn":        "mcp-server.svc.plus",
-			"description": "Central Infrastructure & CMDB MCP Aggregation Gateway",
+			"description": "Central Infrastructure & Observability MCP Unified Gateway",
 			"node":        "dev-k3s-v5",
-			"transport":   "SSE / Streamable HTTP (:8080)",
+			"transport":   "SSE / Streamable HTTP (:8080 & :8000)",
 		},
 	})
 	s.UpsertNode(Node{
 		ID:   "service/observability-mcp",
 		Kind: "service",
-		Name: "mcp.svc.plus",
+		Name: "mcp-server.svc.plus/v1",
 		Attributes: map[string]any{
-			"fqdn":        "mcp.svc.plus",
-			"description": "Dedicated Observability 4-MCP Gateway proxying to observability.svc.plus",
+			"fqdn":        "mcp-server.svc.plus",
+			"description": "Dedicated Observability 4-MCP subpaths on mcp-server.svc.plus proxying to observability.svc.plus",
 			"node":        "dev-k3s-v5",
-			"transport":   "SSE / Streamable HTTP (:8000-:8003)",
+			"transport":   "SSE / Streamable HTTP (/v1/grafana, /v1/metrics, /v1/logs, /v1/traces)",
 		},
 	})
 
