@@ -38,9 +38,9 @@ Downstream adapters are intentionally configured rather than hard-coded. This le
 > **客户端实测验证结论**：
 > * ✅ **Infrastructure**：握手通过，稳定提供 8 个 CMDB / 拓扑查询工具。
 > * ✅ **QMD**：握手通过，提供 23 个工具，当前本地 PG 15432 已完整索引 193 篇白皮书并生效 **BM25 词法全文检索**（外部向量 API Key 注入后可激活向量计算）。
-> * ❌ **可观测性 4-MCP**：未通过协议验证。请求返回 HTTP 302 重定向至 Grafana 网页（`text/html`），服务端 Caddy 尚未开放 MCP 代理。**客户端请暂缓挂载这 4 个远程地址**。
+> * ⚡ **可观测性 4-MCP (Grafana)**：协议为 **`SSE`** 传输；服务端已通过 [`playbooks PR #820`](https://github.com/ai-workspace-infra/playbooks/pull/820) 修复 `--base-path /mcp/v1/grafana` 前缀透传并启用 `--disable-write` 只读安全加固。
 >
-> **避坑提示**：在各类 IDE 客户端的单服务配置中，底层均强制要求保留最外层的 `"mcpServers"` 结构，否则报错提示“未解析到 MCP 服务项”。
+> **避坑提示**：在各类 IDE 客户端（如 Trae / Cherry Studio）的单服务编辑弹窗中，底层强制要求最外层保留 `"mcpServers"`，且**单次仅支持编辑/添加单个服务**（多填会报“被识别为多配置项”）。请分别添加下列单服务配置。
 
 ### 1. Infrastructure-MCP-Server（多云 CMDB 与 15 边拓扑，实测通过）
 
