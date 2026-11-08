@@ -24,7 +24,7 @@ This repository contains the production-ready Go implementation:
 - Unified downstream observability integration on **`mcp-server.svc.plus/v1`** with upstream central telemetry storage at **`https://observability.svc.plus/`**.
 - Process-based and HTTP-based MCP clients for downstream server reuse without reimplementing domain tools.
 - Namespaced aggregation (`kubernetes.<tool>`, `netbox.<tool>`, `grafana.<tool>`, etc.).
-- Built-in `infra.backends`, `infra.health`, `infra.observability.status`, `infra.cmdb.query`, `infra.cmdb.summary`, `infra.cmdb.sync`, `infra.cli.exec`, and `infra.graph.query` tools.
+- Built-in `infra.backends`, `infra.health`, `infra.observability.status`, `infra.cmdb.query`, `infra.cmdb.summary`, `infra.cmdb.sync`, `infra.cli.exec`, `infra.graph.query`, `infra.api_catalog.query`, and `infra.flagger.status` tools.
 - Thread-safe in-memory Environment Graph store, backed by PostgreSQL/pgvector and CMDB sync.
 - JSON configuration for downstream MCP processes.
 

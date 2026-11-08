@@ -9,8 +9,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ai-workspace-infra/Infrastructure-MCP-Server/internal/catalog"
 	"github.com/ai-workspace-infra/Infrastructure-MCP-Server/internal/cmdb"
 	"github.com/ai-workspace-infra/Infrastructure-MCP-Server/internal/config"
+	"github.com/ai-workspace-infra/Infrastructure-MCP-Server/internal/flagger"
 	"github.com/ai-workspace-infra/Infrastructure-MCP-Server/internal/graph"
 	"github.com/ai-workspace-infra/Infrastructure-MCP-Server/internal/mcp"
 )
@@ -27,6 +29,8 @@ type Gateway struct {
 	backends []Backend
 	graph    *graph.Store
 	cmdb     *cmdb.Store
+	catalog  *catalog.Store
+	flagger  *flagger.Client
 }
 
 func New(cfg config.Config, graphStore *graph.Store, cmdbStores ...*cmdb.Store) *Gateway {
@@ -47,7 +51,27 @@ func New(cfg config.Config, graphStore *graph.Store, cmdbStores ...*cmdb.Store) 
 			}
 		}
 	}
-	return &Gateway{backends: backends, graph: graphStore, cmdb: cmdbStore}
+	return &Gateway{
+		backends: backends,
+		graph:    graphStore,
+		cmdb:     cmdbStore,
+		catalog:  catalog.NewStore(""),
+		flagger:  flagger.NewClient(""),
+	}
+}
+
+func (g *Gateway) WithCatalog(cat *catalog.Store) *Gateway {
+	if cat != nil {
+		g.catalog = cat
+	}
+	return g
+}
+
+func (g *Gateway) WithFlagger(fl *flagger.Client) *Gateway {
+	if fl != nil {
+		g.flagger = fl
+	}
+	return g
 }
 
 func (g *Gateway) Tools(ctx context.Context) ([]mcp.Tool, error) {
@@ -111,6 +135,25 @@ func (g *Gateway) Tools(ctx context.Context) ([]mcp.Tool, error) {
 				},
 			}),
 		},
+		{
+			Name:        "infra.api_catalog.query",
+			Description: "Query the unified API and Route Catalog across Web Console frontend and backend microservices (Console, Accounts, Billing), supporting 3-tier grouping, auth policies, and search.",
+			InputSchema: objectSchema(map[string]any{
+				"category":    map[string]any{"type": "string", "description": "Filter by category: all, frontend, api (or backend)"},
+				"service":     map[string]any{"type": "string", "description": "Filter by service: console, accounts, billing"},
+				"environment": map[string]any{"type": "string", "description": "Filter by environment: sit, prod (defaults to prod)"},
+				"query":       map[string]any{"type": "string", "description": "Keyword search matching path, description, category, service, or method"},
+			}),
+		},
+		{
+			Name:        "infra.flagger.status",
+			Description: "Query Flagger progressive release canary phases, traffic weights (Primary vs Candidate), and gate decisions across SIT and PROD environments.",
+			InputSchema: objectSchema(map[string]any{
+				"environment": map[string]any{"type": "string", "description": "Target environment: sit, prod (defaults to prod)"},
+				"service":     map[string]any{"type": "string", "description": "Filter by service or workload name: console, accounts, billing, web-saas-*"},
+				"cluster":     map[string]any{"type": "string", "description": "Target Kubernetes cluster: PROD-K3S-V6, SIT-K3S-V6"},
+			}),
+		},
 	}
 
 	for _, backend := range g.backends {
@@ -155,6 +198,10 @@ func (g *Gateway) Call(ctx context.Context, name string, arguments map[string]an
 		return mcp.JSONResult(report)
 	case "infra.cli.exec":
 		return g.execCLI(ctx, arguments)
+	case "infra.api_catalog.query":
+		return g.apiCatalogQuery(ctx, arguments)
+	case "infra.flagger.status":
+		return g.flaggerStatus(ctx, arguments)
 	}
 
 	separator := strings.IndexByte(name, '.')
@@ -370,13 +417,13 @@ func (g *Gateway) observabilityStatus(ctx context.Context) (mcp.CallToolResult, 
 				"protocol":   "OTLP/HTTP / TraceQL",
 			},
 			{
-				"name":       "Grafana (Visual Dashboards & Alerts)",
-				"type":       "visualization",
-				"ui_url":     "https://observability.svc.plus/grafana/",
-				"mcp_url":    "https://mcp-server.svc.plus/v1/grafana/sse",
-				"transport":  "sse",
-				"port":       3000,
-				"protocol":   "HTTP / JSON Dashboard Provisioning",
+				"name":      "Grafana (Visual Dashboards & Alerts)",
+				"type":      "visualization",
+				"ui_url":    "https://observability.svc.plus/grafana/",
+				"mcp_url":   "https://mcp-server.svc.plus/v1/grafana/sse",
+				"transport": "sse",
+				"port":      3000,
+				"protocol":  "HTTP / JSON Dashboard Provisioning",
 			},
 			{
 				"name":      "Blackbox Exporter (Synthetic Probes)",
@@ -413,6 +460,43 @@ func (g *Gateway) health(ctx context.Context) (mcp.CallToolResult, error) {
 		statuses = append(statuses, status)
 	}
 	return mcp.JSONResult(map[string]any{"backends": statuses})
+}
+
+func (g *Gateway) apiCatalogQuery(ctx context.Context, arguments map[string]any) (mcp.CallToolResult, error) {
+	var filter catalog.Filter
+	if arguments != nil {
+		if cat, ok := arguments["category"].(string); ok {
+			filter.Category = cat
+		}
+		if svc, ok := arguments["service"].(string); ok {
+			filter.Service = svc
+		}
+		if env, ok := arguments["environment"].(string); ok {
+			filter.Environment = env
+		}
+		if q, ok := arguments["query"].(string); ok {
+			filter.Query = q
+		}
+	}
+	result := g.catalog.Query(ctx, filter)
+	return mcp.JSONResult(result)
+}
+
+func (g *Gateway) flaggerStatus(ctx context.Context, arguments map[string]any) (mcp.CallToolResult, error) {
+	var filter flagger.Filter
+	if arguments != nil {
+		if env, ok := arguments["environment"].(string); ok {
+			filter.Environment = env
+		}
+		if svc, ok := arguments["service"].(string); ok {
+			filter.Service = svc
+		}
+		if cl, ok := arguments["cluster"].(string); ok {
+			filter.Cluster = cl
+		}
+	}
+	result := g.flagger.Query(ctx, filter)
+	return mcp.JSONResult(result)
 }
 
 func objectSchema(properties ...map[string]any) map[string]any {
