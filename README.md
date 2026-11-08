@@ -1,168 +1,85 @@
 # Infrastructure MCP Server
 
-Infrastructure MCP Server is a Go gateway for XWorkmate Agent. It aggregates existing MCP servers and exposes a stable infrastructure-facing tool surface across IaC, CMDB, runtime, security, and the Environment Graph.
+[![Status](https://img.shields.io/badge/Status-Production%20Ready-brightgreen.svg)]()
+[![Version](https://img.shields.io/badge/Version-v0.3.0--sit-blue.svg)]()
+[![TLS](https://img.shields.io/badge/TLS-Let's%20Encrypt%20(*.svc.plus)-success.svg)]()
 
-```text
-XWorkmate Agent / Code Agent (Trae / Cursor)
-        |
-        +---> Unified MCP Gateway: https://mcp-server.svc.plus (dev-k3s-v5)
-        |     |-- /sse, /mcp (CMDB Inventory, 15-edge Environment Graph, Safe CLI)
-        |     \-- /v1/grafana/sse (Grafana SSE Read-Only Viewer)
-        |           | (upstream telemetry query)
-        |           v
-        |     https://observability.svc.plus (Central Storage & Visualization)
-        |
-        +---> QMD Memory Hub: QMD + PostgreSQL :15432 (194 Whitepapers & BM25 Fulltext)
+Infrastructure MCP Server 是多云基础设施与可观测性系统的统一 AI Agent 网关与智能路由器。它为上游各类 Code Agent、AI Agent Teams 及自动化流水线提供标准化的基础设施操作与可观测性入口，并向下聚合级联 Grafana MCP 与 Victoria 全家桶（Metrics / Logs / Traces）。
+
+```mermaid
+flowchart LR
+    Agents["AI 智能体 / IDE / Web / CI-CD\n(Claude / Cursor / Obsy Teams)"] -->|https://mcp.svc.plus| Router["Infrastructure MCP Server\n(统一中枢 @ SIT-K3S-V6)"]
+    Router --> Grafana["Grafana MCP\n(:8000 SSE)"]
+    Router --> Victoria["Victoria 全家桶\n(Metrics / Logs / Traces)"]
+    Router --> MultiCluster["多集群基础设施\n(PROD-K3S-V6 / SIT-K3S-V6)"]
 ```
 
-## Status
+---
 
-This repository contains the production-ready Go implementation:
+## 🚀 统一入口与运行环境
 
-- Dual-transport MCP server supporting both **stdio** (local IDE) and **HTTP/SSE** (`-listen :8080`, `-base-path /v1`).
-- Deployed via **GitOps + FluxCD** on the **`dev-k3s-v5`** cluster with single dedicated domain **`mcp-server.svc.plus`**.
-- Unified downstream observability integration on **`mcp-server.svc.plus/v1`** with upstream central telemetry storage at **`https://observability.svc.plus/`**.
-- Process-based and HTTP-based MCP clients for downstream server reuse without reimplementing domain tools.
-- Namespaced aggregation (`kubernetes.<tool>`, `netbox.<tool>`, `grafana.<tool>`, etc.).
-- Built-in `infra.backends`, `infra.health`, `infra.observability.status`, `infra.cmdb.query`, `infra.cmdb.summary`, `infra.cmdb.sync`, `infra.cli.exec`, `infra.graph.query`, `infra.api_catalog.query`, `infra.flagger.status`, and `infra.telemetry.query` tools.
-- Dynamic environment & topology discovery powered by `observability.svc.plus` central telemetry (VictoriaMetrics MetricsQL, VictoriaLogs LogsQL, VictoriaTraces TraceQL) with zero hardcoded environments.
-- Multi-protocol transport for diverse agent ecosystems:
-  - **Standard JSON-RPC stdio**: Local IDEs (Trae, Cursor, Cherry Studio, Claude Desktop).
-  - **Standard MCP SSE**: `/sse`, `/v1/sse`, `/message`, `/v1/message`.
-  - **Universal Web REST APIs**: `/api/v1/tools`, `/api/v1/tools/call`, `/api/v1/catalog`, `/api/v1/flagger`, `/api/v1/cmdb`.
-  - **Real-Time Telemetry Event Stream (SSE)**: `/api/v1/events` for Third-Party AI Agent Teams (Obsy Agent Teams, etc.).
-- Thread-safe in-memory Environment Graph store, backed by PostgreSQL/pgvector and CMDB sync.
-- JSON configuration for downstream MCP processes.
+| 属性 | 运行参数 | 说明 |
+| :--- | :--- | :--- |
+| **主入口域名** | **`https://mcp.svc.plus`** | 统一公网安全 HTTPS 接入点 |
+| **集群与节点** | `SIT-K3S-V6` (`172.237.9.58:443`) | 命名空间：`platform-mcp-sit`，1/1 Running |
+| **TLS 证书** | `shared-observability-tls` | Let's Encrypt 权威签发，覆盖 `*.svc.plus` 与 `svc.plus` |
+| **兼容别名** | `https://mcp.sit.onwalk.net` | 历史兼容域名保持平滑透传 |
 
-Downstream adapters are intentionally configured rather than hard-coded. This lets the gateway reuse the chosen open-source Kubernetes, Helm, NetBox, Terraform, Vault, and Ansible Playbook MCP implementations while keeping the gateway independent of package-specific APIs.
+---
 
-## 💡 Code Agent / IDE 客户端 MCP 配置速查 (TL;DR)
+## 🔌 4 种智能体接入模式
 
-针对 **Trae**、**Cursor**、**Cherry Studio**、**Claude Desktop** 及 **观测云 Obsy Agent Teams** 等智能体，请查阅完整配置速查文档：[TLDR.md](TLDR.md)。
+Infrastructure MCP Server 提供 4 种全场景接入模式：
 
-> [!IMPORTANT]
-> **客户端实测验证结论**：
-> * ✅ **Infrastructure**：握手通过，稳定提供 8 个 CMDB / 拓扑查询工具。
-> * ✅ **QMD**：握手通过，提供 23 个工具，当前本地 PG 15432 已完整索引 193 篇白皮书并生效 **BM25 词法全文检索**（外部向量 API Key 注入后可激活向量计算）。
-> * ⚡ **可观测性 4-MCP (Grafana)**：协议为 **`SSE`** 传输；服务端已通过 [`playbooks PR #820`](https://github.com/ai-workspace-infra/playbooks/pull/820) 修复 `--base-path /mcp/v1/grafana` 前缀透传并启用 `--disable-write` 只读安全加固。
->
-> **避坑提示**：在各类 IDE 客户端（如 Trae / Cherry Studio）的单服务编辑弹窗中，底层强制要求最外层保留 `"mcpServers"`，且**单次仅支持编辑/添加单个服务**（多填会报“被识别为多配置项”）。请分别添加下列单服务配置。
+| 接入模式 | 适用场景 | 核心入口 / 协议 |
+| :--- | :--- | :--- |
+| **Mode 1: Web REST API** | Web SaaS 控制台、CI/CD 运维脚本、自动化流水线 | `GET/POST https://mcp.svc.plus/api/v1/...` |
+| **Mode 2: MCP Tool Call** | 第三方 AI Agent 运行时通用调用 | `POST https://mcp.svc.plus/api/v1/tools/call` |
+| **Mode 3: Server-Sent Events** | AI Agent Teams 协同、实时态势感知与监听 | `GET https://mcp.svc.plus/api/v1/events?env=sit` |
+| **Mode 4: 标准 stdio 管道** | Claude Desktop、Cursor、Antigravity 原生交互 | 进程标准输入输出 (`stdin`/`stdout`) |
 
-### 1. Infrastructure-MCP-Server（多云 CMDB 与 15 边拓扑，实测通过）
+---
 
-**标准原生配置（推荐）：**
-```json
-{
-  "mcpServers": {
-    "infrastructure": {
-      "args": [
-        "-config",
-        "/Users/shenlan/.config/infrastructure-mcp-server/config.json"
-      ],
-      "command": "/Users/shenlan/.local/bin/infrastructure-mcp-server"
-    }
-  }
-}
-```
+## 🛠️ 17 个内置核心工具一览
 
-*表单模式填写*：
-* **类型 (Type)**：`STDIO`
-* **命令 (Command)**：`/Users/shenlan/.local/bin/infrastructure-mcp-server`
-* **参数 (Args)**：
-  * `-config`
-  * `/Users/shenlan/.config/infrastructure-mcp-server/config.json`
+- **网关与域名路由**：`infra.gateway.query`、`infra.domains.query`
+- **动态拓扑与图谱**：`infra.topology.query`、`infra.graph.query`
+- **三位一体可观测性**：`infra.metrics.query`、`infra.logs.query`、`infra.traces.query`、`infra.telemetry.query`、`infra.observability.status`
+- **渐进式发布与服务目录**：`infra.flagger.status`、`infra.api_catalog.query`
+- **多云资产与安全运维**：`infra.cmdb.query`、`infra.cmdb.summary`、`infra.cmdb.sync`、`infra.cli.exec`、`infra.backends`、`infra.health`
 
-> 💡 **备选 0 参数 Wrapper 模式**（防客户端丢参数）：
-> ```json
-> {
->   "mcpServers": {
->     "infrastructure": {
->       "command": "/Users/shenlan/.local/bin/run-infrastructure-mcp.sh"
->     }
->   }
-> }
-> ```
+---
 
-### 2. QMD MCP Server（193 篇白皮书 & SOP 记忆，实测通过）
+## 📚 详细文档导航
 
-```json
-{
-  "mcpServers": {
-    "qmd": {
-      "command": "/Users/shenlan/.local/bin/run-qmd-mcp.sh"
-    }
-  }
-}
-```
+详细架构、协议规范、能力字典与实盘用例请参阅 `docs/` 目录：
 
-### 3. 可观测性 4-MCP（待服务端网关上线，暂缓挂载）
-* **Grafana**: `{ "mcpServers": { "observability-grafana": { "url": "https://observability.svc.plus/mcp/v1/grafana/mcp" } } }`
-* **VictoriaMetrics**: `{ "mcpServers": { "observability-metrics": { "url": "https://observability.svc.plus/mcp/v1/metrics/mcp" } } }`
-* **VictoriaLogs**: `{ "mcpServers": { "observability-logs": { "url": "https://observability.svc.plus/mcp/v1/logs/mcp" } } }`
-* **VictoriaTraces**: `{ "mcpServers": { "observability-traces": { "url": "https://observability.svc.plus/mcp/v1/traces/mcp" } } }`
+- 🏗️ **[架构设计与拓扑规范](docs/architecture.md)**：统一入口架构、多集群划分、无硬编码动态探测与下游级联规范。
+- 🔌 **[4 种接入模式深度详解](docs/access-modes.md)**：Web REST API 路由表、MCP 通用调用契约、SSE 流规范与 stdio 细节。
+- 🔍 **[17 个工具与全维度查询规范](docs/query-capabilities.md)**：每个工具的入参、返回格式、数据源与业务场景。
+- 🧪 **[外部调用测试与实盘用例](docs/testing-and-verification.md)**：包含实测 curl 命令、入参出参报文及验证结果。
+- 💡 **[IDE 客户端接入速查 (TL;DR)](TLDR.md)**：Trae、Cursor、Cherry Studio、Claude Desktop 配置示例与避坑提示。
 
-## 🚀 快速开始
+---
 
-在 Debian 12+ 或 Ubuntu 22.04+ 服务器上，可使用一键安装脚本部署 Infrastructure-MCP-Server 及其 Caddy HTTPS 反向代理。
-
-### 独立模式 (Standalone)
-
-本地单机部署，自动生成初始服务凭证（仅在安装结束时展示一次，建议写入 Vault）：
+## ⚡ 快速体验
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/ai-workspace-infra/Infrastructure-MCP-Server/main/scripts/setup-mcp-server.sh | \
-  bash -s -- --domain mcp.example.com --standalone
+# 1. 探针检查与元数据获取
+curl -s --resolve mcp.svc.plus:443:172.237.9.58 "https://mcp.svc.plus/" | jq .
+
+# 2. 查询平台全量域名与 TLS 状态 (Mode 1)
+curl -s --resolve mcp.svc.plus:443:172.237.9.58 "https://mcp.svc.plus/api/v1/domains" | jq .
+
+# 3. 智能体通用工具调用 (Mode 2)
+curl --http1.1 -s --resolve mcp.svc.plus:443:172.237.9.58 -X POST \
+  "https://mcp.svc.plus/api/v1/tools/call" \
+  -H "Content-Type: application/json" \
+  -d '{"name": "infra.metrics.query", "arguments": {"query": "probe_success"}}' | jq .
 ```
 
-### 团队模式 (Team / Vault 动态注入)
+---
 
-结合团队凭据管理，在执行安装前由 Vault 或环境变量注入运行时凭证（执行后立即清理临时变量）：
+## 📄 License
 
-```bash
-export MCP_DOMAIN="mcp.example.com"
-export MCP_SERVICE_TOKEN="<runtime-secret>"
-curl -fsSL https://raw.githubusercontent.com/ai-workspace-infra/Infrastructure-MCP-Server/main/scripts/setup-mcp-server.sh | \
-  bash -s -- --domain "$MCP_DOMAIN" --with-backends
-unset MCP_SERVICE_TOKEN
-```
-
-### 卸载 (Uninstall)
-
-停止并禁用 systemd 服务与 Caddy 代理容器，清理二进制文件，并将当前配置和数据自动备份至 `/var/backups/`：
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/ai-workspace-infra/Infrastructure-MCP-Server/main/scripts/setup-mcp-server.sh | \
-  bash -s -- --uninstall
-```
-
-## Run
-
-With no configuration, the server starts with only the built-in tools:
-
-```bash
-go run ./cmd/infrastructure-mcp-server
-```
-
-Copy `config.example.json` to `config.json`, replace the placeholder commands with the MCP servers used in your environment, enable the desired backends, and run:
-
-```bash
-go run ./cmd/infrastructure-mcp-server -config config.json
-```
-
-The server speaks newline-delimited JSON-RPC over stdin/stdout. Downstream process stderr is kept on stderr so it cannot corrupt the MCP stream.
-
-## Design boundaries for the next iteration
-
-1. Add HTTP/SSE or streamable HTTP downstream transport where a source is not a local process.
-2. Add OpenTofu and Ansible Playbook domain normalization where their existing MCP tools differ from Terraform conventions.
-3. Add Environment Graph ingestion from backend discovery results.
-4. Add PostgreSQL/pgvector persistence and graph-aware search.
-5. Add authorization, audit events, timeouts, and allow-listed mutating operations before production use.
-
-## Verify
-
-```bash
-gofmt -w cmd internal
-go test ./...
-go vet ./...
-```
+Apache License 2.0.
