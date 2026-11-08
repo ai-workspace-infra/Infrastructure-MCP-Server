@@ -3,10 +3,13 @@ package catalog
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/ai-workspace-infra/Infrastructure-MCP-Server/internal/telemetry"
 )
 
 type Store struct {
@@ -14,37 +17,91 @@ type Store struct {
 	items      []Item
 	httpClient *http.Client
 	portalURL  string
+	telemetry  *telemetry.Engine
 }
 
-func NewStore(portalURL string) *Store {
+func NewStore(portalURL string, engine ...*telemetry.Engine) *Store {
 	if portalURL == "" {
 		portalURL = "https://console.svc.plus"
 	}
+	var tel *telemetry.Engine
+	if len(engine) > 0 && engine[0] != nil {
+		tel = engine[0]
+	} else {
+		tel = telemetry.NewEngine(telemetry.Config{}, nil)
+	}
+
 	return &Store{
 		items: defaultCatalogItems(),
 		httpClient: &http.Client{
 			Timeout: 2 * time.Second,
 		},
 		portalURL: portalURL,
+		telemetry: tel,
 	}
 }
 
-// Query filters items based on provided criteria and optionally triggers real-time telemetry integration.
+func (s *Store) WithTelemetry(engine *telemetry.Engine) *Store {
+	if engine != nil {
+		s.telemetry = engine
+	}
+	return s
+}
+
+// Query filters items dynamically driven by discovered environments and real-time observability probes.
 func (s *Store) Query(ctx context.Context, filter Filter) Result {
 	s.mu.RLock()
 	baseItems := make([]Item, len(s.items))
 	copy(baseItems, s.items)
 	s.mu.RUnlock()
 
+	// Dynamically discover active environments
+	topo, _ := s.telemetry.DiscoverTopology(ctx)
+
 	env := strings.ToUpper(strings.TrimSpace(filter.Environment))
 	if env == "" {
-		env = "PROD"
+		if len(topo.Environments) > 0 {
+			for _, e := range topo.Environments {
+				if strings.Contains(strings.ToLower(e), "prod") {
+					env = strings.ToUpper(e)
+					break
+				}
+			}
+			if env == "" {
+				env = strings.ToUpper(topo.Environments[0])
+			}
+		} else {
+			env = "PROD"
+		}
 	}
 
 	liveSynced := false
-	source := "Built-in Normalized API Catalog Standard"
+	source := "Dynamic Catalog Registry"
 
-	// Attempt real-time sync with Web Console operations-matrix API if context allows
+	// 1. Try real-time probe queries from VictoriaMetrics for this environment
+	probeSuccessMap, probeCodeMap, probeLatencyMap, err := s.fetchLiveProbeMetrics(ctx, strings.ToLower(env))
+	if err == nil && len(probeSuccessMap) > 0 {
+		for i := range baseItems {
+			key := fmt.Sprintf("%s:%s", strings.ToLower(baseItems[i].Service), baseItems[i].Path)
+			if pass, ok := probeSuccessMap[key]; ok {
+				liveSynced = true
+				if pass {
+					baseItems[i].Status = "PASS"
+				} else {
+					baseItems[i].Status = "FAIL"
+				}
+			}
+			if code, ok := probeCodeMap[key]; ok && code > 0 {
+				baseItems[i].ObservedHTTP = code
+			}
+			if lat, ok := probeLatencyMap[key]; ok && lat > 0 {
+				baseItems[i].LatencyMs = lat
+			}
+		}
+		source = "VictoriaMetrics Live Probes (" + env + ")"
+	}
+
+	// 2. Try real-time sync with Web Console operations-matrix API if available
 	if s.portalURL != "" {
 		syncedItems, err := s.fetchLiveOperationsMatrix(ctx, env)
 		if err == nil && len(syncedItems) > 0 {
@@ -87,11 +144,11 @@ func (s *Store) Query(ctx context.Context, filter Filter) Result {
 			}
 		}
 
-		// Adjust domain and latency for environment
+		// Adjust domain for non-prod environment
 		itemCopy := item
-		if env == "SIT" {
-			if !strings.Contains(itemCopy.ServiceDomain, "sit") {
-				itemCopy.ServiceDomain = itemCopy.ServiceDomain + " (sit)"
+		if !strings.Contains(strings.ToLower(env), "prod") {
+			if !strings.Contains(itemCopy.ServiceDomain, strings.ToLower(env)) {
+				itemCopy.ServiceDomain = itemCopy.ServiceDomain + " (" + strings.ToLower(env) + ")"
 			}
 		}
 
@@ -124,6 +181,54 @@ func (s *Store) Query(ctx context.Context, filter Filter) Result {
 		LiveSynced:  liveSynced,
 		Source:      source,
 	}
+}
+
+func (s *Store) fetchLiveProbeMetrics(ctx context.Context, env string) (map[string]bool, map[string]int, map[string]int, error) {
+	querySuccess := fmt.Sprintf(`probe_success{environment="%s"}`, env)
+	queryCode := fmt.Sprintf(`probe_http_status_code{environment="%s"}`, env)
+	queryDuration := fmt.Sprintf(`probe_duration_seconds{environment="%s"}`, env)
+
+	successVectors, err := s.telemetry.QueryMetrics(ctx, querySuccess)
+	if err != nil || len(successVectors) == 0 {
+		return nil, nil, nil, err
+	}
+
+	successMap := make(map[string]bool)
+	for _, vec := range successVectors {
+		svc := strings.ToLower(vec.Metric["service"])
+		route := vec.Metric["route"]
+		if svc != "" && route != "" {
+			if fVal, ok := telemetry.ParseMetricFloat(vec.Value); ok {
+				successMap[fmt.Sprintf("%s:%s", svc, route)] = (int(fVal) == 1)
+			}
+		}
+	}
+
+	codeMap := make(map[string]int)
+	codeVectors, _ := s.telemetry.QueryMetrics(ctx, queryCode)
+	for _, vec := range codeVectors {
+		svc := strings.ToLower(vec.Metric["service"])
+		route := vec.Metric["route"]
+		if svc != "" && route != "" {
+			if fVal, ok := telemetry.ParseMetricFloat(vec.Value); ok {
+				codeMap[fmt.Sprintf("%s:%s", svc, route)] = int(fVal)
+			}
+		}
+	}
+
+	latencyMap := make(map[string]int)
+	durVectors, _ := s.telemetry.QueryMetrics(ctx, queryDuration)
+	for _, vec := range durVectors {
+		svc := strings.ToLower(vec.Metric["service"])
+		route := vec.Metric["route"]
+		if svc != "" && route != "" {
+			if fVal, ok := telemetry.ParseMetricFloat(vec.Value); ok {
+				latencyMap[fmt.Sprintf("%s:%s", svc, route)] = int(fVal * 1000)
+			}
+		}
+	}
+
+	return successMap, codeMap, latencyMap, nil
 }
 
 func (s *Store) fetchLiveOperationsMatrix(ctx context.Context, env string) ([]Item, error) {

@@ -42,7 +42,7 @@ flowchart TD
 
 | 配置组件 / 服务项 | 接入模式 | 实测结果 | 可用工具数 | 协议握手与就绪状态说明 |
 | :--- | :--- | :---: | :---: | :--- |
-| **Infrastructure-MCP-Server** | 本地 Command + Args / Wrapper | ✅ **通过** | **10 个工具** | 初始化握手成功，稳定暴露 `infra.cmdb.query`、`infra.cmdb.summary`、`infra.graph.query`、`infra.cli.exec`、`infra.api_catalog.query`、`infra.flagger.status` 等。 |
+| **Infrastructure-MCP-Server** | 本地 Command + Args / Wrapper / Web REST & SSE | ✅ **通过** | **11 个工具** | 初始化握手成功，稳定暴露 `infra.cmdb.query`、`infra.cmdb.summary`、`infra.graph.query`、`infra.cli.exec`、`infra.api_catalog.query`、`infra.flagger.status`、`infra.telemetry.query`。支持标准 stdio 管道、MCP SSE 及 Web REST/SSE 实时流模式。 |
 | **QMD MCP Server** | 本地 Wrapper 脚本 | ✅ **通过** | **23 个工具** | 初始化握手成功，工具集全量暴露。**检索状态说明**：当前基于本地 PG 15432 生效 **BM25 词法全文检索**（收录 193 篇白皮书）；外部向量 API Key 注入后方可激活稠密向量索引。 |
 | **可观测性 4-MCP 端点**<br>(Grafana / Metrics / Logs / Traces) | 远程 Streamable HTTP | ❌ **未通过** | 0 | **协议不符（阻断）**：请求返回 HTTP 302 重定向至 Grafana 网页（`Content-Type: text/html`），非 MCP 协议响应。服务端 Caddy Ingress 尚未开启 MCP 路由代理，**目前暂勿在生产客户端挂载**。 |
 
@@ -134,7 +134,7 @@ flowchart TD
 ```
 
 > [!TIP]
-> **验证状态**：✅ **实测通过**。原生命令行与 Wrapper 两种模式均已完成 MCP 握手，成功初始化 10 个核心工具（`infra.cmdb.query`、`infra.cmdb.summary`、`infra.graph.query`、`infra.cli.exec`、`infra.api_catalog.query`、`infra.flagger.status` 等）。
+> **验证状态**：✅ **实测通过**。原生命令行、Wrapper 脚本以及 Web REST / SSE 多传输模式均已完成协议实测验证，成功初始化 11 个核心工具（涵盖 `infra.cmdb.query`、`infra.cmdb.summary`、`infra.graph.query`、`infra.cli.exec`、`infra.api_catalog.query`、`infra.flagger.status`、`infra.telemetry.query`）。零硬编码环境，全面对接 `observability.svc.plus` 动态三路遥测。
 
 > 赋予 Agent 查询 SIT/UAT/PROD 资产现状、提取 `service/observability-gateway` 依赖拓扑及受控安全执行只读 Cloud CLI 的能力。
 
