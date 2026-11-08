@@ -50,3 +50,19 @@ Infrastructure MCP Server 内置了 17 个专为基础设施工程与可观测�
 提供部署运维智能体用于决策是否推进或回滚金丝雀发布的依据：
 - 暴露 Canary 阶段（`Initialized`、`Progressing`、`Waiting`、`Promoting`、`Succeeded`、`Failed`）。
 - 实时暴露当前流量切分权重（如权重 `10%` -> `20%`）及错误率判定门禁。
+
+---
+
+## 3. 下游独立 MCP Server 直连清单与专属工具（Victoria 全家桶 + Grafana）
+
+每个下游 MCP Server 均具备完备的自主独立运行能力，既支持被 `Infrastructure MCP Server` 统一聚合透传，也可由外部智能体（Claude Desktop、Cursor、Antigravity）直接挂载直连。
+
+| 独立服务名称 | 集群内 Service | 外部直连 URL (IngressRoute) | 协议与入口 | 独立工具数 | 核心工具能力覆盖 |
+| :--- | :--- | :--- | :--- | :---: | :--- |
+| **mcp-victoriametrics** | `mcp-victoriametrics:8088` | `https://observability.svc.plus/mcp/v1/metrics/mcp` | Streamable HTTP (`/mcp`) | **16** | PromQL/MetricsQL 瞬时/区间查询、series/labels 探查、告警规则、活跃与慢查询、TSDB 状态 |
+| **mcp-victorialogs** | `mcp-victorialogs:8083` | `https://observability.svc.plus/mcp/v1/logs/mcp` | Streamable HTTP (`/mcp`) | **13** | LogsQL 查询、hits 统计、facets 聚合分析、stream 过滤字段及枚举提取 |
+| **mcp-victoriatraces** | `mcp-victoriatraces:8082` | `https://observability.svc.plus/mcp/v1/traces/mcp` | Streamable HTTP (`/mcp`) | **6** | Jaeger/OTLP 格式 traces、单 trace 详情、服务列表与 operation、服务依赖图谱 |
+| **mcp-grafana** | `mcp-grafana:8000` | `https://observability.svc.plus/mcp/v1/grafana/sse` | SSE 长连接 (`/v1/grafana/sse`) | **多项** | Grafana 原生仪表盘检索、面板数据提取、数据源探针、告警通道查询 |
+
+> [!TIP]
+> **会话保持机制**：VictoriaMetrics / VictoriaLogs / VictoriaTraces 官方 MCP 均采用基于 Session 的 MCP 规范。客户端初次握手 `POST /mcp` 发起 `initialize` 时，服务端会在响应头返回 `Mcp-Session-Id: mcp-session-...`；后续所有 `tools/list`、`tools/call` 请求必须携带该 Header。
