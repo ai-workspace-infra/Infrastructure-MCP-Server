@@ -40,11 +40,57 @@ func TestGatewayBuiltinTools(t *testing.T) {
 		"infra.api_catalog.query",
 		"infra.flagger.status",
 		"infra.telemetry.query",
+		"infra.gateway.query",
+		"infra.domains.query",
+		"infra.topology.query",
+		"infra.metrics.query",
+		"infra.logs.query",
+		"infra.traces.query",
 	}
 	for _, exp := range expected {
 		if !toolNames[exp] {
 			t.Fatalf("missing expected tool: %s", exp)
 		}
+	}
+
+	// Test infra.gateway.query call
+	gwRes, err := gw.Call(ctx, "infra.gateway.query", map[string]any{"environment": "sit"})
+	if err != nil {
+		t.Fatalf("failed to call infra.gateway.query: %v", err)
+	}
+	var gwData map[string]any
+	if err := json.Unmarshal([]byte(gwRes.Content[0].Text), &gwData); err != nil {
+		t.Fatalf("parse gateway query JSON: %v", err)
+	}
+	mcpEntry, _ := gwData["mcp_entry"].(map[string]any)
+	if mcpEntry["primary_fqdn"] != "mcp.svc.plus" {
+		t.Fatalf("expected mcp.svc.plus as primary_fqdn, got %v", mcpEntry["primary_fqdn"])
+	}
+
+	// Test infra.domains.query call
+	domRes, err := gw.Call(ctx, "infra.domains.query", map[string]any{"query": "mcp"})
+	if err != nil {
+		t.Fatalf("failed to call infra.domains.query: %v", err)
+	}
+	var domData map[string]any
+	if err := json.Unmarshal([]byte(domRes.Content[0].Text), &domData); err != nil {
+		t.Fatalf("parse domains query JSON: %v", err)
+	}
+	if domData["count"].(float64) == 0 {
+		t.Fatalf("expected mcp domains, got 0")
+	}
+
+	// Test infra.topology.query call
+	topoRes, err := gw.Call(ctx, "infra.topology.query", nil)
+	if err != nil {
+		t.Fatalf("failed to call infra.topology.query: %v", err)
+	}
+	var topoData map[string]any
+	if err := json.Unmarshal([]byte(topoRes.Content[0].Text), &topoData); err != nil {
+		t.Fatalf("parse topology query JSON: %v", err)
+	}
+	if topoData["entrypoint"] != "https://mcp.svc.plus" {
+		t.Fatalf("expected entrypoint https://mcp.svc.plus, got %v", topoData["entrypoint"])
 	}
 
 	// Test infra.telemetry.query call
