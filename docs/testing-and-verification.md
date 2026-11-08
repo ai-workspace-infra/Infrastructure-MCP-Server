@@ -112,3 +112,62 @@ data: {"primary_fqdn":"mcp.svc.plus","tls_valid":true,"route_count":4}
 echo '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}' | ./infrastructure-mcp-server
 ```
 返回完整的 17 个工具 Schema 定义 JSON-RPC 响应。
+
+---
+
+### 用例 8：下游独立可观测性 MCP Server 直连验证（Victoria 全家桶 + Grafana）
+
+每个下游 MCP Server 均已配置独立 IngressRoute，智能体可直接直连：
+
+#### 8.1 VictoriaMetrics MCP 直连握手与工具列表 (`:8088`, Ingress: `/mcp/v1/metrics/mcp`)
+```bash
+# 1. 握手获取 Session ID 与 serverInfo (16 tools)
+curl -s -i --resolve observability.svc.plus:443:172.237.9.58 \
+  -X POST "https://observability.svc.plus/mcp/v1/metrics/mcp" \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"agent","version":"1.0"}}}'
+
+# 响应示例：
+# HTTP/2 200
+# mcp-session-id: mcp-session-910bd692-fad6-46c0-922d-50e17441f826
+# {"jsonrpc":"2.0","id":1,"result":{"serverInfo":{"name":"VictoriaMetrics","version":"v1.20.2"}}}
+```
+
+#### 8.2 VictoriaLogs MCP 直连握手 (`:8083`, Ingress: `/mcp/v1/logs/mcp`)
+```bash
+# 握手 (13 tools)
+curl -s -i --resolve observability.svc.plus:443:172.237.9.58 \
+  -X POST "https://observability.svc.plus/mcp/v1/logs/mcp" \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"agent","version":"1.0"}}}'
+
+# 响应示例：
+# HTTP/2 200
+# mcp-session-id: mcp-session-b8f1bf91-75f4-4dfe-b309-017e774bf552
+# {"jsonrpc":"2.0","id":1,"result":{"serverInfo":{"name":"VictoriaLogs","version":"v1.9.0"}}}
+```
+
+#### 8.3 VictoriaTraces MCP 直连握手 (`:8082`, Ingress: `/mcp/v1/traces/mcp`)
+```bash
+# 握手 (6 tools)
+curl -s -i --resolve observability.svc.plus:443:172.237.9.58 \
+  -X POST "https://observability.svc.plus/mcp/v1/traces/mcp" \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"agent","version":"1.0"}}}'
+
+# 响应示例：
+# HTTP/2 200
+# mcp-session-id: mcp-session-725e47e5-6c00-412c-adb1-c468b9b9e071
+# {"jsonrpc":"2.0","id":1,"result":{"serverInfo":{"name":"VictoriaTraces","version":"v1.5.0"}}}
+```
+
+#### 8.4 Grafana MCP 直连 SSE 端点 (`:8000`, Ingress: `/mcp/v1/grafana/sse`)
+```bash
+curl -N -s --resolve observability.svc.plus:443:172.237.9.58 \
+  "https://observability.svc.plus/mcp/v1/grafana/sse" | head -n 3
+
+# 响应示例：
+# event: endpoint
+# data: /v1/grafana/sse?sessionid=CGZKMEDUE74E6KFJG4ZKTDFEJR
+```
+
