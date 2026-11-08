@@ -50,15 +50,29 @@ func (h *HTTPServer) Handler() http.Handler {
 	mux.HandleFunc("/api/v1/tools/call", h.handleWebToolCall)
 	mux.HandleFunc("/v1/tools/call", h.handleWebToolCall)
 
-	// Direct convenience REST endpoints for catalog, flagger, cmdb, telemetry
+	// Direct convenience REST endpoints for catalog, flagger, gateway, cmdb, graph, domains, telemetry
 	mux.HandleFunc("/api/v1/catalog", h.handleWebCatalog)
 	mux.HandleFunc("/v1/catalog", h.handleWebCatalog)
 	mux.HandleFunc("/api/v1/flagger", h.handleWebFlagger)
 	mux.HandleFunc("/v1/flagger", h.handleWebFlagger)
+	mux.HandleFunc("/api/v1/gateway", h.handleWebGateway)
+	mux.HandleFunc("/v1/gateway", h.handleWebGateway)
+	mux.HandleFunc("/api/v1/domains", h.handleWebDomains)
+	mux.HandleFunc("/v1/domains", h.handleWebDomains)
 	mux.HandleFunc("/api/v1/cmdb", h.handleWebCMDB)
 	mux.HandleFunc("/v1/cmdb", h.handleWebCMDB)
+	mux.HandleFunc("/api/v1/graph", h.handleWebGraph)
+	mux.HandleFunc("/v1/graph", h.handleWebGraph)
+	mux.HandleFunc("/api/v1/topology", h.handleWebTopology)
+	mux.HandleFunc("/v1/topology", h.handleWebTopology)
 	mux.HandleFunc("/api/v1/telemetry/topology", h.handleWebTopology)
 	mux.HandleFunc("/v1/telemetry/topology", h.handleWebTopology)
+	mux.HandleFunc("/api/v1/telemetry/metrics", h.handleWebMetrics)
+	mux.HandleFunc("/v1/telemetry/metrics", h.handleWebMetrics)
+	mux.HandleFunc("/api/v1/telemetry/logs", h.handleWebLogs)
+	mux.HandleFunc("/v1/telemetry/logs", h.handleWebLogs)
+	mux.HandleFunc("/api/v1/telemetry/traces", h.handleWebTraces)
+	mux.HandleFunc("/v1/telemetry/traces", h.handleWebTraces)
 
 	// Universal Real-Time SSE Telemetry Stream for AI Agent Teams & Dashboards
 	mux.HandleFunc("/api/v1/events", h.handleWebSSEStream)
@@ -364,7 +378,155 @@ func (h *HTTPServer) handleWebTopology(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	res, err := h.server.provider.Call(r.Context(), "infra.observability.status", nil)
+	res, err := h.server.provider.Call(r.Context(), "infra.topology.query", nil)
+	if err != nil {
+		// fallback to observability.status if needed
+		res, err = h.server.provider.Call(r.Context(), "infra.observability.status", nil)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(res)
+}
+
+func (h *HTTPServer) handleWebGateway(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	q := r.URL.Query()
+	args := map[string]any{
+		"environment": q.Get("env"),
+		"domain":      q.Get("domain"),
+		"gateway":     q.Get("gateway"),
+	}
+	if args["environment"] == "" {
+		args["environment"] = q.Get("environment")
+	}
+
+	res, err := h.server.provider.Call(r.Context(), "infra.gateway.query", args)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(res)
+}
+
+func (h *HTTPServer) handleWebDomains(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	q := r.URL.Query()
+	args := map[string]any{
+		"environment": q.Get("env"),
+		"query":       q.Get("q"),
+	}
+	if args["environment"] == "" {
+		args["environment"] = q.Get("environment")
+	}
+	if args["query"] == "" {
+		args["query"] = q.Get("query")
+	}
+
+	res, err := h.server.provider.Call(r.Context(), "infra.domains.query", args)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(res)
+}
+
+func (h *HTTPServer) handleWebGraph(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	q := r.URL.Query()
+	args := map[string]any{
+		"query": q.Get("q"),
+	}
+	if args["query"] == "" {
+		args["query"] = q.Get("query")
+	}
+
+	res, err := h.server.provider.Call(r.Context(), "infra.graph.query", args)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(res)
+}
+
+func (h *HTTPServer) handleWebMetrics(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet && r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	query := r.URL.Query().Get("query")
+	if query == "" {
+		query = r.URL.Query().Get("q")
+	}
+	if r.Method == http.MethodPost {
+		var body struct {
+			Query string `json:"query"`
+		}
+		if json.NewDecoder(r.Body).Decode(&body) == nil && body.Query != "" {
+			query = body.Query
+		}
+	}
+	if query == "" {
+		query = "probe_success"
+	}
+
+	res, err := h.server.provider.Call(r.Context(), "infra.metrics.query", map[string]any{"query": query})
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(res)
+}
+
+func (h *HTTPServer) handleWebLogs(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet && r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	query := r.URL.Query().Get("query")
+	if query == "" {
+		query = r.URL.Query().Get("q")
+	}
+	limit := 50
+	if l := r.URL.Query().Get("limit"); l != "" {
+		fmt.Sscanf(l, "%d", &limit)
+	}
+
+	res, err := h.server.provider.Call(r.Context(), "infra.logs.query", map[string]any{"query": query, "limit": limit})
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(res)
+}
+
+func (h *HTTPServer) handleWebTraces(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	service := r.URL.Query().Get("service")
+	if service == "" {
+		service = "console"
+	}
+
+	res, err := h.server.provider.Call(r.Context(), "infra.traces.query", map[string]any{"service": service})
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -392,7 +554,7 @@ func (h *HTTPServer) handleWebSSEStream(w http.ResponseWriter, r *http.Request) 
 	}
 
 	// Send initial handshake
-	fmt.Fprintf(w, "event: connected\ndata: {\"status\":\"connected\",\"environment\":%q,\"timestamp\":%q}\n\n", envParam, time.Now().UTC().Format(time.RFC3339))
+	fmt.Fprintf(w, "event: connected\ndata: {\"status\":\"connected\",\"environment\":%q,\"endpoint\":\"https://mcp.svc.plus/api/v1/events\",\"timestamp\":%q}\n\n", envParam, time.Now().UTC().Format(time.RFC3339))
 	flusher.Flush()
 
 	ticker := time.NewTicker(10 * time.Second)
@@ -400,12 +562,23 @@ func (h *HTTPServer) handleWebSSEStream(w http.ResponseWriter, r *http.Request) 
 
 	ctx := r.Context()
 	for {
-		// Fetch latest status
+		// 1. Push Flagger progressive release status
 		flaggerRes, _ := h.server.provider.Call(ctx, "infra.flagger.status", map[string]any{"environment": envParam})
 		if len(flaggerRes.Content) > 0 {
 			fmt.Fprintf(w, "event: flagger_status\ndata: %s\n\n", flaggerRes.Content[0].Text)
 			flusher.Flush()
 		}
+
+		// 2. Push Gateway & domain routing status
+		gwRes, _ := h.server.provider.Call(ctx, "infra.gateway.query", map[string]any{"environment": envParam})
+		if len(gwRes.Content) > 0 {
+			fmt.Fprintf(w, "event: gateway_status\ndata: %s\n\n", gwRes.Content[0].Text)
+			flusher.Flush()
+		}
+
+		// 3. Periodic telemetry ping
+		fmt.Fprintf(w, "event: telemetry_ping\ndata: {\"environment\":%q,\"timestamp\":%q,\"status\":\"ok\"}\n\n", envParam, time.Now().UTC().Format(time.RFC3339))
+		flusher.Flush()
 
 		select {
 		case <-ctx.Done():
@@ -423,24 +596,48 @@ func (h *HTTPServer) handleRoot(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Path == "/" {
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]any{
-			"service": "infrastructure-mcp-server",
-			"version": "0.1.0",
-			"status":  "healthy",
-			"mcp_protocols": map[string]string{
-				"sse":     "/sse",
-				"v1_sse":  "/v1/sse",
-				"message": "/message",
-				"mcp":     "/mcp",
-				"healthz": "/healthz",
+			"service":     "infrastructure-mcp-server",
+			"version":     "0.3.0",
+			"status":      "healthy",
+			"entrypoint":  "https://mcp.svc.plus",
+			"cluster":     "SIT-K3S-V6",
+			"host_ip":     "172.237.9.58",
+			"modes": map[string]any{
+				"mode_1_web_rest_api": map[string]string{
+					"description": "Universal HTTP REST APIs for Web SaaS Consoles, CI/CD, and Scripts",
+					"tools_list":  "/api/v1/tools",
+					"tools_call":  "/api/v1/tools/call",
+					"catalog":     "/api/v1/catalog?env=prod&service=billing",
+					"flagger":     "/api/v1/flagger?env=prod&cluster=PROD-K3S-V6",
+					"gateway":     "/api/v1/gateway?env=sit",
+					"domains":     "/api/v1/domains",
+					"cmdb":        "/api/v1/cmdb?env=prod",
+					"graph":       "/api/v1/graph",
+					"topology":    "/api/v1/topology",
+					"metrics":     "/api/v1/telemetry/metrics?query=probe_success",
+					"logs":        "/api/v1/telemetry/logs?query=service:console",
+					"traces":      "/api/v1/telemetry/traces?service=console",
+				},
+				"mode_2_mcp_tool_call": map[string]string{
+					"description": "MCP generic Tool Calling endpoint for third-party AI Agent runtimes",
+					"endpoint":    "/api/v1/tools/call",
+					"method":      "POST",
+				},
+				"mode_3_sse_stream": map[string]string{
+					"description": "Real-time SSE event stream for AI Agent Teams & Dashboards",
+					"endpoint":    "/api/v1/events?env=sit",
+					"mcp_sse":     "/sse",
+				},
+				"mode_4_stdio": map[string]string{
+					"description": "Standard JSON-RPC 2.0 stdio pipeline for Claude Desktop, Cursor, and Antigravity",
+					"binary":      "infrastructure-mcp-server",
+				},
 			},
-			"web_rest_apis": map[string]string{
-				"tools_list":    "/api/v1/tools",
-				"tools_call":    "/api/v1/tools/call",
-				"catalog_query": "/api/v1/catalog",
-				"flagger_query": "/api/v1/flagger",
-				"cmdb_query":    "/api/v1/cmdb",
-				"topology":      "/api/v1/telemetry/topology",
-				"sse_stream":    "/api/v1/events",
+			"downstream_adapters": map[string]string{
+				"grafana_mcp":     "http://mcp-grafana.platform-mcp-sit:8000/v1/grafana/sse",
+				"victoriametrics": "http://observability-observability-stack-victoria-metrics.observability-sit:8428",
+				"victorialogs":    "http://observability-observability-stack-victoria-logs.observability-sit:9428",
+				"victoriatraces":   "http://observability-observability-stack-victoria-traces.observability-sit:10428",
 			},
 		})
 		return
