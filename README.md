@@ -24,7 +24,13 @@ This repository contains the production-ready Go implementation:
 - Unified downstream observability integration on **`mcp-server.svc.plus/v1`** with upstream central telemetry storage at **`https://observability.svc.plus/`**.
 - Process-based and HTTP-based MCP clients for downstream server reuse without reimplementing domain tools.
 - Namespaced aggregation (`kubernetes.<tool>`, `netbox.<tool>`, `grafana.<tool>`, etc.).
-- Built-in `infra.backends`, `infra.health`, `infra.observability.status`, `infra.cmdb.query`, `infra.cmdb.summary`, `infra.cmdb.sync`, `infra.cli.exec`, `infra.graph.query`, `infra.api_catalog.query`, and `infra.flagger.status` tools.
+- Built-in `infra.backends`, `infra.health`, `infra.observability.status`, `infra.cmdb.query`, `infra.cmdb.summary`, `infra.cmdb.sync`, `infra.cli.exec`, `infra.graph.query`, `infra.api_catalog.query`, `infra.flagger.status`, and `infra.telemetry.query` tools.
+- Dynamic environment & topology discovery powered by `observability.svc.plus` central telemetry (VictoriaMetrics MetricsQL, VictoriaLogs LogsQL, VictoriaTraces TraceQL) with zero hardcoded environments.
+- Multi-protocol transport for diverse agent ecosystems:
+  - **Standard JSON-RPC stdio**: Local IDEs (Trae, Cursor, Cherry Studio, Claude Desktop).
+  - **Standard MCP SSE**: `/sse`, `/v1/sse`, `/message`, `/v1/message`.
+  - **Universal Web REST APIs**: `/api/v1/tools`, `/api/v1/tools/call`, `/api/v1/catalog`, `/api/v1/flagger`, `/api/v1/cmdb`.
+  - **Real-Time Telemetry Event Stream (SSE)**: `/api/v1/events` for Third-Party AI Agent Teams (Obsy Agent Teams, etc.).
 - Thread-safe in-memory Environment Graph store, backed by PostgreSQL/pgvector and CMDB sync.
 - JSON configuration for downstream MCP processes.
 

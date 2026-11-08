@@ -143,3 +143,63 @@ func TestHTTPServerSSEHandshakeAndMessage(t *testing.T) {
 		t.Fatal("timed out waiting for ping response on SSE")
 	}
 }
+
+func TestHTTPServerWebRESTAndEventStream(t *testing.T) {
+	srv := NewServer(&dummyProvider{})
+	httpSrv := NewHTTPServer(srv, "")
+	ts := httptest.NewServer(httpSrv.Handler())
+	defer ts.Close()
+
+	// 1. Test GET /api/v1/tools
+	toolsResp, err := http.Get(ts.URL + "/api/v1/tools")
+	if err != nil {
+		t.Fatalf("GET /api/v1/tools failed: %v", err)
+	}
+	defer toolsResp.Body.Close()
+	if toolsResp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", toolsResp.StatusCode)
+	}
+	var toolsData map[string]any
+	if err := json.NewDecoder(toolsResp.Body).Decode(&toolsData); err != nil {
+		t.Fatalf("decode tools JSON failed: %v", err)
+	}
+	if toolsData["count"].(float64) != 1 {
+		t.Fatalf("expected count 1, got %v", toolsData["count"])
+	}
+
+	// 2. Test POST /api/v1/tools/call
+	callBody := `{"name":"dummy.tool","arguments":{"test":"val"}}`
+	callResp, err := http.Post(ts.URL+"/api/v1/tools/call", "application/json", strings.NewReader(callBody))
+	if err != nil {
+		t.Fatalf("POST /api/v1/tools/call failed: %v", err)
+	}
+	defer callResp.Body.Close()
+	if callResp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d", callResp.StatusCode)
+	}
+	var callData map[string]any
+	if err := json.NewDecoder(callResp.Body).Decode(&callData); err != nil {
+		t.Fatalf("decode call JSON failed: %v", err)
+	}
+	if callData["tool"] != "dummy.tool" {
+		t.Fatalf("unexpected tool name: %v", callData["tool"])
+	}
+
+	// 3. Test GET /api/v1/events (SSE Stream)
+	req, _ := http.NewRequest("GET", ts.URL+"/api/v1/events", nil)
+	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+	defer cancel()
+	req = req.WithContext(ctx)
+
+	sseResp, err := http.DefaultClient.Do(req)
+	if err == nil {
+		defer sseResp.Body.Close()
+		if sseResp.StatusCode != http.StatusOK {
+			t.Fatalf("expected 200 for SSE stream, got %d", sseResp.StatusCode)
+		}
+		contentType := sseResp.Header.Get("Content-Type")
+		if !strings.Contains(contentType, "text/event-stream") {
+			t.Fatalf("expected text/event-stream, got %s", contentType)
+		}
+	}
+}

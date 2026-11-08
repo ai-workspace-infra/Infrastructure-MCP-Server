@@ -6,20 +6,22 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
-	"time"
+
+	"github.com/ai-workspace-infra/Infrastructure-MCP-Server/internal/telemetry"
 )
 
-func TestFlaggerBaselineQuery(t *testing.T) {
-	client := NewClient("http://127.0.0.1:9999", &http.Client{Timeout: 10 * time.Millisecond})
+func TestFlaggerDynamicBaselineQuery(t *testing.T) {
+	mockTel := telemetry.NewEngine(telemetry.Config{
+		BaseURL: "http://127.0.0.1:9999",
+	}, nil, &http.Client{Timeout: 10})
+
+	client := NewClient("", mockTel)
 	ctx := context.Background()
 
 	// 1. PROD Query
 	prodRes := client.Query(ctx, Filter{Environment: "prod"})
 	if prodRes.Environment != "PROD" {
 		t.Fatalf("expected PROD environment, got %s", prodRes.Environment)
-	}
-	if prodRes.Cluster != "PROD-K3S-V6" {
-		t.Fatalf("expected PROD-K3S-V6 cluster, got %s", prodRes.Cluster)
 	}
 	if prodRes.GateDecision != "ALLOWED" {
 		t.Fatalf("expected ALLOWED gate decision on PROD, got %s", prodRes.GateDecision)
@@ -41,9 +43,6 @@ func TestFlaggerBaselineQuery(t *testing.T) {
 	if sitRes.Environment != "SIT" {
 		t.Fatalf("expected SIT environment, got %s", sitRes.Environment)
 	}
-	if sitRes.Cluster != "SIT-K3S-V6" {
-		t.Fatalf("expected SIT-K3S-V6 cluster, got %s", sitRes.Cluster)
-	}
 	if sitRes.GateDecision != "BLOCKED" {
 		t.Fatalf("expected BLOCKED gate decision on SIT due to failed canaries, got %s", sitRes.GateDecision)
 	}
@@ -60,18 +59,18 @@ func TestFlaggerLivePrometheusQuery(t *testing.T) {
 		q := r.URL.Query().Get("query")
 		w.Header().Set("Content-Type", "application/json")
 
-		if q != "" && len(q) > 0 && q[:len("flagger_canary_status")] == "flagger_canary_status" {
+		if q != "" && len(q) >= 20 && q[:20] == "flagger_canary_statu" {
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"status": "success",
 				"data": map[string]any{
 					"resultType": "vector",
 					"result": []map[string]any{
 						{
-							"metric": map[string]string{"name": "web-saas-console", "cluster": "SIT-K3S-V6"},
+							"metric": map[string]string{"name": "web-saas-console", "cluster": "SIT-K3S-V6", "environment": "sit"},
 							"value":  []any{1794132000, "0"}, // Progressing
 						},
 						{
-							"metric": map[string]string{"name": "web-saas-accounts", "cluster": "SIT-K3S-V6"},
+							"metric": map[string]string{"name": "web-saas-accounts", "cluster": "SIT-K3S-V6", "environment": "sit"},
 							"value":  []any{1794132000, "1"}, // Succeeded
 						},
 					},
@@ -80,7 +79,7 @@ func TestFlaggerLivePrometheusQuery(t *testing.T) {
 			return
 		}
 
-		if q != "" && len(q) > 0 && q[:len("flagger_canary_weight")] == "flagger_canary_weight" {
+		if q != "" && len(q) >= 20 && q[:20] == "flagger_canary_weigh" {
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"status": "success",
 				"data": map[string]any{
@@ -96,11 +95,19 @@ func TestFlaggerLivePrometheusQuery(t *testing.T) {
 			return
 		}
 
-		w.WriteHeader(http.StatusBadRequest)
+		// Discovery endpoint fallback
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"status": "success",
+			"data":   []string{"sit", "prod"},
+		})
 	}))
 	defer server.Close()
 
-	client := NewClient(server.URL)
+	tel := telemetry.NewEngine(telemetry.Config{
+		MetricsURL: server.URL,
+	}, nil)
+
+	client := NewClient("", tel)
 	res := client.Query(context.Background(), Filter{Environment: "sit"})
 
 	if !res.LiveMetrics {

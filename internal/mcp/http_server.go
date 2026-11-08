@@ -43,6 +43,27 @@ func (h *HTTPServer) Handler() http.Handler {
 	mux.HandleFunc("/v1/message", h.handleMessage)
 	mux.HandleFunc("/mcp", h.handleStreamable)
 	mux.HandleFunc("/v1/mcp", h.handleStreamable)
+
+	// Web universal HTTP REST APIs for Third-Party AI Agent Teams
+	mux.HandleFunc("/api/v1/tools", h.handleWebToolsList)
+	mux.HandleFunc("/v1/tools", h.handleWebToolsList)
+	mux.HandleFunc("/api/v1/tools/call", h.handleWebToolCall)
+	mux.HandleFunc("/v1/tools/call", h.handleWebToolCall)
+
+	// Direct convenience REST endpoints for catalog, flagger, cmdb, telemetry
+	mux.HandleFunc("/api/v1/catalog", h.handleWebCatalog)
+	mux.HandleFunc("/v1/catalog", h.handleWebCatalog)
+	mux.HandleFunc("/api/v1/flagger", h.handleWebFlagger)
+	mux.HandleFunc("/v1/flagger", h.handleWebFlagger)
+	mux.HandleFunc("/api/v1/cmdb", h.handleWebCMDB)
+	mux.HandleFunc("/v1/cmdb", h.handleWebCMDB)
+	mux.HandleFunc("/api/v1/telemetry/topology", h.handleWebTopology)
+	mux.HandleFunc("/v1/telemetry/topology", h.handleWebTopology)
+
+	// Universal Real-Time SSE Telemetry Stream for AI Agent Teams & Dashboards
+	mux.HandleFunc("/api/v1/events", h.handleWebSSEStream)
+	mux.HandleFunc("/v1/events", h.handleWebSSEStream)
+
 	mux.HandleFunc("/", h.handleRoot)
 	return h.corsMiddleware(mux)
 }
@@ -209,6 +230,191 @@ func (h *HTTPServer) handleStreamable(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(resp)
 }
 
+func (h *HTTPServer) handleWebToolsList(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	tools, err := h.server.provider.Tools(r.Context())
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"service": "infrastructure-mcp-server",
+		"count":   len(tools),
+		"tools":   tools,
+	})
+}
+
+func (h *HTTPServer) handleWebToolCall(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	body, err := io.ReadAll(io.LimitReader(r.Body, 10*1024*1024))
+	if err != nil {
+		http.Error(w, "read body failed", http.StatusBadRequest)
+		return
+	}
+
+	var req struct {
+		Name      string         `json:"name"`
+		Arguments map[string]any `json:"arguments"`
+	}
+	if err := json.Unmarshal(body, &req); err != nil || req.Name == "" {
+		http.Error(w, "name is required with valid arguments", http.StatusBadRequest)
+		return
+	}
+
+	res, err := h.server.provider.Call(r.Context(), req.Name, req.Arguments)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"tool":   req.Name,
+		"result": res,
+	})
+}
+
+func (h *HTTPServer) handleWebCatalog(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	q := r.URL.Query()
+	args := map[string]any{
+		"category":    q.Get("category"),
+		"service":     q.Get("service"),
+		"environment": q.Get("env"),
+		"query":       q.Get("query"),
+	}
+	if args["environment"] == "" {
+		args["environment"] = q.Get("environment")
+	}
+	if args["query"] == "" {
+		args["query"] = q.Get("q")
+	}
+
+	res, err := h.server.provider.Call(r.Context(), "infra.api_catalog.query", args)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(res)
+}
+
+func (h *HTTPServer) handleWebFlagger(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	q := r.URL.Query()
+	args := map[string]any{
+		"environment": q.Get("env"),
+		"service":     q.Get("service"),
+		"cluster":     q.Get("cluster"),
+	}
+	if args["environment"] == "" {
+		args["environment"] = q.Get("environment")
+	}
+
+	res, err := h.server.provider.Call(r.Context(), "infra.flagger.status", args)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(res)
+}
+
+func (h *HTTPServer) handleWebCMDB(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	q := r.URL.Query()
+	args := map[string]any{
+		"environment": q.Get("env"),
+		"provider":    q.Get("provider"),
+		"kind":        q.Get("kind"),
+		"status":      q.Get("status"),
+	}
+	if args["environment"] == "" {
+		args["environment"] = q.Get("environment")
+	}
+
+	res, err := h.server.provider.Call(r.Context(), "infra.cmdb.query", args)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(res)
+}
+
+func (h *HTTPServer) handleWebTopology(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	res, err := h.server.provider.Call(r.Context(), "infra.observability.status", nil)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(res)
+}
+
+// handleWebSSEStream implements an automated, real-time Server-Sent Events stream for AI Agent Teams & Dashboards.
+func (h *HTTPServer) handleWebSSEStream(w http.ResponseWriter, r *http.Request) {
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		http.Error(w, "streaming unsupported", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	w.Header().Set("X-Accel-Buffering", "no")
+
+	envParam := r.URL.Query().Get("env")
+	if envParam == "" {
+		envParam = "prod"
+	}
+
+	// Send initial handshake
+	fmt.Fprintf(w, "event: connected\ndata: {\"status\":\"connected\",\"environment\":%q,\"timestamp\":%q}\n\n", envParam, time.Now().UTC().Format(time.RFC3339))
+	flusher.Flush()
+
+	ticker := time.NewTicker(10 * time.Second)
+	defer ticker.Stop()
+
+	ctx := r.Context()
+	for {
+		// Fetch latest status
+		flaggerRes, _ := h.server.provider.Call(ctx, "infra.flagger.status", map[string]any{"environment": envParam})
+		if len(flaggerRes.Content) > 0 {
+			fmt.Fprintf(w, "event: flagger_status\ndata: %s\n\n", flaggerRes.Content[0].Text)
+			flusher.Flush()
+		}
+
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+		}
+	}
+}
+
 func (h *HTTPServer) handleRoot(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodPost {
 		h.handleStreamable(w, r)
@@ -220,11 +426,21 @@ func (h *HTTPServer) handleRoot(w http.ResponseWriter, r *http.Request) {
 			"service": "infrastructure-mcp-server",
 			"version": "0.1.0",
 			"status":  "healthy",
-			"endpoints": map[string]string{
+			"mcp_protocols": map[string]string{
 				"sse":     "/sse",
+				"v1_sse":  "/v1/sse",
 				"message": "/message",
 				"mcp":     "/mcp",
 				"healthz": "/healthz",
+			},
+			"web_rest_apis": map[string]string{
+				"tools_list":    "/api/v1/tools",
+				"tools_call":    "/api/v1/tools/call",
+				"catalog_query": "/api/v1/catalog",
+				"flagger_query": "/api/v1/flagger",
+				"cmdb_query":    "/api/v1/cmdb",
+				"topology":      "/api/v1/telemetry/topology",
+				"sse_stream":    "/api/v1/events",
 			},
 		})
 		return

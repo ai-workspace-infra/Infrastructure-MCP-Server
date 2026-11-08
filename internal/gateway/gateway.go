@@ -15,6 +15,7 @@ import (
 	"github.com/ai-workspace-infra/Infrastructure-MCP-Server/internal/flagger"
 	"github.com/ai-workspace-infra/Infrastructure-MCP-Server/internal/graph"
 	"github.com/ai-workspace-infra/Infrastructure-MCP-Server/internal/mcp"
+	"github.com/ai-workspace-infra/Infrastructure-MCP-Server/internal/telemetry"
 )
 
 type Backend interface {
@@ -26,19 +27,45 @@ type Backend interface {
 }
 
 type Gateway struct {
-	backends []Backend
-	graph    *graph.Store
-	cmdb     *cmdb.Store
-	catalog  *catalog.Store
-	flagger  *flagger.Client
+	backends  []Backend
+	graph     *graph.Store
+	cmdb      *cmdb.Store
+	catalog   *catalog.Store
+	flagger   *flagger.Client
+	telemetry *telemetry.Engine
+}
+
+type gatewayMCPCaller struct {
+	gw *Gateway
+}
+
+func (c *gatewayMCPCaller) Call(ctx context.Context, toolName string, arguments map[string]any) ([]byte, error) {
+	if c.gw == nil {
+		return nil, fmt.Errorf("gateway not initialized")
+	}
+	separator := strings.IndexByte(toolName, '.')
+	if separator <= 0 || separator == len(toolName)-1 {
+		return nil, fmt.Errorf("invalid tool name %q", toolName)
+	}
+	backendName, rawTool := toolName[:separator], toolName[separator+1:]
+	for _, b := range c.gw.backends {
+		if b.Name() == backendName {
+			res, err := b.Call(ctx, rawTool, arguments)
+			if err != nil {
+				return nil, err
+			}
+			if len(res.Content) > 0 {
+				return []byte(res.Content[0].Text), nil
+			}
+			return nil, nil
+		}
+	}
+	return nil, fmt.Errorf("backend %q not found", backendName)
 }
 
 func New(cfg config.Config, graphStore *graph.Store, cmdbStores ...*cmdb.Store) *Gateway {
-	var cmdbStore *cmdb.Store
-	if len(cmdbStores) > 0 && cmdbStores[0] != nil {
-		cmdbStore = cmdbStores[0]
-	} else {
-		cmdbStore = cmdb.NewStore(graphStore, "")
+	gw := &Gateway{
+		graph: graphStore,
 	}
 
 	backends := make([]Backend, 0, len(cfg.Backends))
@@ -51,13 +78,25 @@ func New(cfg config.Config, graphStore *graph.Store, cmdbStores ...*cmdb.Store) 
 			}
 		}
 	}
-	return &Gateway{
-		backends: backends,
-		graph:    graphStore,
-		cmdb:     cmdbStore,
-		catalog:  catalog.NewStore(""),
-		flagger:  flagger.NewClient(""),
+	gw.backends = backends
+
+	mcpCaller := &gatewayMCPCaller{gw: gw}
+	telEngine := telemetry.NewEngine(telemetry.Config{}, mcpCaller)
+	gw.telemetry = telEngine
+
+	var cmdbStore *cmdb.Store
+	if len(cmdbStores) > 0 && cmdbStores[0] != nil {
+		cmdbStore = cmdbStores[0]
+		cmdbStore.WithTelemetry(telEngine)
+	} else {
+		cmdbStore = cmdb.NewStore(graphStore, "", telEngine)
 	}
+	gw.cmdb = cmdbStore
+
+	gw.catalog = catalog.NewStore("", telEngine)
+	gw.flagger = flagger.NewClient("", telEngine)
+
+	return gw
 }
 
 func (g *Gateway) WithCatalog(cat *catalog.Store) *Gateway {
@@ -70,6 +109,22 @@ func (g *Gateway) WithCatalog(cat *catalog.Store) *Gateway {
 func (g *Gateway) WithFlagger(fl *flagger.Client) *Gateway {
 	if fl != nil {
 		g.flagger = fl
+	}
+	return g
+}
+
+func (g *Gateway) WithTelemetry(tel *telemetry.Engine) *Gateway {
+	if tel != nil {
+		g.telemetry = tel
+		if g.catalog != nil {
+			g.catalog.WithTelemetry(tel)
+		}
+		if g.flagger != nil {
+			g.flagger.WithTelemetry(tel)
+		}
+		if g.cmdb != nil {
+			g.cmdb.WithTelemetry(tel)
+		}
 	}
 	return g
 }
@@ -154,6 +209,15 @@ func (g *Gateway) Tools(ctx context.Context) ([]mcp.Tool, error) {
 				"cluster":     map[string]any{"type": "string", "description": "Target Kubernetes cluster: PROD-K3S-V6, SIT-K3S-V6"},
 			}),
 		},
+		{
+			Name:        "infra.telemetry.query",
+			Description: "Dynamically query central observability stack (metrics, logs, traces, topology) via VictoriaMetrics, VictoriaLogs, VictoriaTraces, or downstream MCP adapters without hardcoding environments.",
+			InputSchema: objectSchema(map[string]any{
+				"type":  map[string]any{"type": "string", "description": "Query target: metrics, logs, traces, topology (default: metrics)"},
+				"query": map[string]any{"type": "string", "description": "Query expression (PromQL/MetricsQL for metrics, LogsQL for logs, service name for traces)"},
+				"limit": map[string]any{"type": "integer", "description": "Maximum entries for logs (default: 50)"},
+			}),
+		},
 	}
 
 	for _, backend := range g.backends {
@@ -202,6 +266,8 @@ func (g *Gateway) Call(ctx context.Context, name string, arguments map[string]an
 		return g.apiCatalogQuery(ctx, arguments)
 	case "infra.flagger.status":
 		return g.flaggerStatus(ctx, arguments)
+	case "infra.telemetry.query":
+		return g.telemetryQuery(ctx, arguments)
 	}
 
 	separator := strings.IndexByte(name, '.')
@@ -446,7 +512,84 @@ func (g *Gateway) observabilityStatus(ctx context.Context) (mcp.CallToolResult, 
 			"kv/data/prod/ulighthost-xconnect/observability.svc.plus",
 		},
 	}
+
+	if g.telemetry != nil {
+		topo, _ := g.telemetry.DiscoverTopology(ctx)
+		data["dynamic_topology"] = map[string]any{
+			"environments":    topo.Environments,
+			"clusters":        topo.Clusters,
+			"env_cluster_map": topo.EnvClusterMap,
+			"services":        topo.Services,
+			"source":          topo.Source,
+			"discovery_mode":  "Dynamic query from central observability stack (metrics, logs, traces)",
+		}
+	}
+
 	return mcp.JSONResult(data)
+}
+
+func (g *Gateway) telemetryQuery(ctx context.Context, arguments map[string]any) (mcp.CallToolResult, error) {
+	if g.telemetry == nil {
+		return mcp.CallToolResult{}, fmt.Errorf("telemetry engine not initialized")
+	}
+
+	targetType, _ := arguments["type"].(string)
+	query, _ := arguments["query"].(string)
+	limit := 50
+	if l, ok := arguments["limit"].(float64); ok && l > 0 {
+		limit = int(l)
+	}
+
+	switch strings.ToLower(targetType) {
+	case "logs":
+		if query == "" {
+			query = "_time:15m | limit 50"
+		}
+		records, err := g.telemetry.QueryLogs(ctx, query, limit)
+		if err != nil {
+			return mcp.CallToolResult{}, err
+		}
+		return mcp.JSONResult(map[string]any{
+			"type":    "logs",
+			"query":   query,
+			"count":   len(records),
+			"records": records,
+		})
+	case "traces":
+		if query == "" {
+			query = "console"
+		}
+		spans, err := g.telemetry.QueryTraces(ctx, query)
+		if err != nil {
+			return mcp.CallToolResult{}, err
+		}
+		return mcp.JSONResult(map[string]any{
+			"type":    "traces",
+			"service": query,
+			"count":   len(spans),
+			"spans":   spans,
+		})
+	case "topology":
+		meta, err := g.telemetry.DiscoverTopology(ctx)
+		if err != nil {
+			return mcp.CallToolResult{}, err
+		}
+		return mcp.JSONResult(meta)
+	default: // metrics
+		if query == "" {
+			query = "probe_success"
+		}
+		vectors, err := g.telemetry.QueryMetrics(ctx, query)
+		if err != nil {
+			return mcp.CallToolResult{}, err
+		}
+		return mcp.JSONResult(map[string]any{
+			"type":    "metrics",
+			"query":   query,
+			"count":   len(vectors),
+			"vectors": vectors,
+		})
+	}
 }
 
 func (g *Gateway) health(ctx context.Context) (mcp.CallToolResult, error) {

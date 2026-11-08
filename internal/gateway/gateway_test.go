@@ -39,11 +39,25 @@ func TestGatewayBuiltinTools(t *testing.T) {
 		"infra.cli.exec",
 		"infra.api_catalog.query",
 		"infra.flagger.status",
+		"infra.telemetry.query",
 	}
 	for _, exp := range expected {
 		if !toolNames[exp] {
 			t.Fatalf("missing expected tool: %s", exp)
 		}
+	}
+
+	// Test infra.telemetry.query call
+	telRes, err := gw.Call(ctx, "infra.telemetry.query", map[string]any{"type": "topology"})
+	if err != nil {
+		t.Fatalf("failed to call infra.telemetry.query: %v", err)
+	}
+	var telData map[string]any
+	if err := json.Unmarshal([]byte(telRes.Content[0].Text), &telData); err != nil {
+		t.Fatalf("parse telemetry query JSON: %v", err)
+	}
+	if telData["source"] == "" {
+		t.Fatalf("expected topology source in telemetry query result")
 	}
 
 	// Test infra.api_catalog.query call
