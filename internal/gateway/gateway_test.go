@@ -37,11 +37,39 @@ func TestGatewayBuiltinTools(t *testing.T) {
 		"infra.cmdb.summary",
 		"infra.cmdb.sync",
 		"infra.cli.exec",
+		"infra.api_catalog.query",
+		"infra.flagger.status",
 	}
 	for _, exp := range expected {
 		if !toolNames[exp] {
 			t.Fatalf("missing expected tool: %s", exp)
 		}
+	}
+
+	// Test infra.api_catalog.query call
+	catRes, err := gw.Call(ctx, "infra.api_catalog.query", map[string]any{"service": "billing"})
+	if err != nil {
+		t.Fatalf("failed to call infra.api_catalog.query: %v", err)
+	}
+	var catData map[string]any
+	if err := json.Unmarshal([]byte(catRes.Content[0].Text), &catData); err != nil {
+		t.Fatalf("parse api catalog JSON: %v", err)
+	}
+	if catData["total"].(float64) == 0 {
+		t.Fatalf("expected billing catalog items, got 0")
+	}
+
+	// Test infra.flagger.status call
+	flaggerRes, err := gw.Call(ctx, "infra.flagger.status", map[string]any{"environment": "prod"})
+	if err != nil {
+		t.Fatalf("failed to call infra.flagger.status: %v", err)
+	}
+	var flaggerData map[string]any
+	if err := json.Unmarshal([]byte(flaggerRes.Content[0].Text), &flaggerData); err != nil {
+		t.Fatalf("parse flagger JSON: %v", err)
+	}
+	if flaggerData["environment"] != "PROD" || flaggerData["gate_decision"] != "ALLOWED" {
+		t.Fatalf("unexpected flagger prod response: %#v", flaggerData)
 	}
 
 	// Test infra.backends call

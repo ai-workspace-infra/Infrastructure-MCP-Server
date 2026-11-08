@@ -33,10 +33,10 @@ type EnvironmentSummary struct {
 }
 
 type SyncReport struct {
-	TotalSynced  int                   `json:"total_synced"`
-	Environments map[string]int        `json:"environments"`
-	Sources      []string              `json:"sources"`
-	CLIs         map[string]bool       `json:"clis"`
-	MCPAdapters  []string              `json:"mcp_adapters"`
-	Summaries    []EnvironmentSummary  `json:"summaries"`
+	TotalSynced  int                  `json:"total_synced"`
+	Environments map[string]int       `json:"environments"`
+	Sources      []string             `json:"sources"`
+	CLIs         map[string]bool      `json:"clis"`
+	MCPAdapters  []string             `json:"mcp_adapters"`
+	Summaries    []EnvironmentSummary `json:"summaries"`
 }
