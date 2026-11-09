@@ -610,7 +610,7 @@ func (g *Gateway) observabilityStatus(ctx context.Context) (mcp.CallToolResult, 
 		"vault_secret_paths": []string{
 			"kv/<env>/platform/observability",
 			"kv/data/observability/mcp",
-			"kv/data/prod/ulighthost-xconnect/observability.svc.plus",
+			"kv/data/CICD/domains/svc.plus",
 		},
 	}
 
