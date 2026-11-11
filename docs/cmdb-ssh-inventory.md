@@ -20,7 +20,7 @@ Every host resource carries a non-secret `ssh` block:
 | `ssh.user` | read-only account, default `auditor` |
 | `ssh.port` | default 22 |
 | `ssh.connection_name` | ssh-mcp-server `connectionName` (first DNS label, matches the VictoriaMetrics `instance` prefix) |
-| `ssh.vault_ref` | Vault KV v2 path holding the private key (field `ssh_private_key`) of the OPS environment: `kv/data/sit/platform/mcp` |
+| `ssh.vault_ref` | Vault KV v2 path holding the private key (field `ssh_private_key_b64`, single-line base64) of the OPS environment: `kv/data/sit/platform/mcp` |
 
 Labels: `environment` (sit/prod), `provider`, `attributes.role`
 (`k3s-node`, `edge-agent`), `attributes.cluster`.
@@ -52,7 +52,7 @@ One-shot:
 
 ```bash
 # key materialised from Vault into a tmpfs file, never committed
-vault kv get -field=ssh_private_key kv/sit/platform/mcp > /run/ssh-mcp/auditor_ed25519 && chmod 600 /run/ssh-mcp/auditor_ed25519
+(umask 077; vault kv get -field=ssh_private_key_b64 kv/sit/platform/mcp | base64 -d > /run/ssh-mcp/auditor_ed25519)
 SSH_MCP_PRIVATE_KEY_PATH=/run/ssh-mcp/auditor_ed25519 \
   infrastructure-mcp-server -render-ssh-config /run/ssh-mcp/ssh-config.json -ssh-env sit,prod
 ```
@@ -91,13 +91,13 @@ Other agents reach SSH tools only through `https://mcp.svc.plus` with
   - initContainer (gateway image): `-render-ssh-config /run/ssh-mcp/ssh-config.json` from CMDB into an
     in-memory `emptyDir`; `SSH_MCP_PRIVATE_KEY_PATH` points at the sidecar's Secret mount.
   - sidecar `ssh-mcp-server` (`node` image, `@fangjunjie/ssh-mcp-server@1.11.0`):
-    `--mcp-transport http --http-host 127.0.0.1 --http-port 3000`, bearer `SSH_MCP_HTTP_TOKEN`
+    `--mcp-transport http --http-host 127.0.0.1 --http-port 3000`, bearer `SSH_MCP_HTTP_TOKEN` (= the gateway's `mcp_service_token`)
     (stateless Streamable HTTP, JSON responses).
-  - gateway backend `ssh`: `streamable-http`, `bearer_token_env: SSH_MCP_HTTP_TOKEN`,
+  - gateway backend `ssh`: `streamable-http`, `bearer_token_env: MCP_SERVICE_TOKEN` (one token for inbound and gateway→sidecar),
     `allowed_tools: [list-servers, execute-command]`.
 - Addresses: hostnames/FQDNs + `auditor` come from GitOps/CMDB only. Short node names need a DNS
   record declared in IaC (`sit-k3s-v6.svc.plus`, `prod-k3s-v6.svc.plus`).
-- Note: ssh-mcp-server does not verify SSH host keys; restrict egress and use a dedicated `auditor` key.
+- Note: ssh-mcp-server does not verify SSH host keys; restrict egress. The key is shared by root/auditor/operator by design; the sidecar logs in as `auditor`, so access is bounded by the OS account.
 
 ## Vault layout (secrets only)
 
@@ -105,7 +105,7 @@ Non-secret values (usernames, URLs, hostnames, ports, `auditor`) live in GitOps/
 
 | Path (KV v2 API) | Fields | Consumers |
 |---|---|---|
-| `kv/data/<env>/platform/mcp` | `mcp_service_token`, `ssh_private_key`, `ssh_mcp_http_token` | gateway inbound auth, ssh-mcp-server sidecar |
+| `kv/data/<env>/platform/mcp` | `mcp_service_token`, `ssh_private_key_b64` | gateway inbound auth + gateway→sidecar bearer; sidecar SSH key (ESO `decodingStrategy: Base64` → raw key in one Secret `platform-mcp`) |
 | `kv/data/<env>/platform/observability` | `vmauth_password`, `grafana_admin_password` (later `grafana_mcp_sa_token`) | Vector agents / vmauth, Grafana, mcp-grafana |
 
 MCP components reference observability fields through their own ExternalSecret; nothing is copied.

@@ -13,7 +13,7 @@ const (
 	// DefaultSSHUser is the read-only inspection account on every host.
 	DefaultSSHUser = "auditor"
 	// DefaultSSHVaultRef is the Vault KV v2 path of the OPS environment that
-	// holds the inspection SSH private key (field ssh_private_key). Only
+	// holds the inspection SSH private key (field ssh_private_key_b64, base64). Only
 	// secrets live there; hostnames, users and ports stay in GitOps/CMDB.
 	DefaultSSHVaultRef = "kv/data/sit/platform/mcp"
 
