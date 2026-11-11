@@ -2,6 +2,7 @@ package mcp
 
 import (
 	"crypto/rand"
+	"crypto/subtle"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -19,10 +20,42 @@ type Session struct {
 }
 
 type HTTPServer struct {
-	server   *Server
-	sessions map[string]*Session
-	mu       sync.RWMutex
-	basePath string
+	server    *Server
+	sessions  map[string]*Session
+	mu        sync.RWMutex
+	basePath  string
+	authToken string
+}
+
+// SetAuthToken enables inbound Bearer authentication. When token is
+// non-empty every route except /healthz and /health (and CORS preflight)
+// requires "Authorization: Bearer <token>".
+func (h *HTTPServer) SetAuthToken(token string) {
+	h.authToken = strings.TrimSpace(token)
+}
+
+func (h *HTTPServer) authMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if h.authToken == "" || isPublicPath(r.URL.Path) {
+			next.ServeHTTP(w, r)
+			return
+		}
+		got := r.Header.Get("Authorization")
+		const prefix = "Bearer "
+		if len(got) <= len(prefix) || !strings.EqualFold(got[:len(prefix)], prefix) ||
+			subtle.ConstantTimeCompare([]byte(strings.TrimSpace(got[len(prefix):])), []byte(h.authToken)) != 1 {
+			w.Header().Set("WWW-Authenticate", `Bearer realm="infrastructure-mcp-server"`)
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusUnauthorized)
+			_ = json.NewEncoder(w).Encode(map[string]string{"error": "unauthorized"})
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+func isPublicPath(p string) bool {
+	return p == "/healthz" || p == "/health" || strings.HasSuffix(p, "/healthz") || strings.HasSuffix(p, "/health")
 }
 
 func NewHTTPServer(server *Server, basePath string) *HTTPServer {
@@ -79,7 +112,7 @@ func (h *HTTPServer) Handler() http.Handler {
 	mux.HandleFunc("/v1/events", h.handleWebSSEStream)
 
 	mux.HandleFunc("/", h.handleRoot)
-	return h.corsMiddleware(mux)
+	return h.corsMiddleware(h.authMiddleware(mux))
 }
 
 func (h *HTTPServer) corsMiddleware(next http.Handler) http.Handler {
@@ -596,12 +629,12 @@ func (h *HTTPServer) handleRoot(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Path == "/" {
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]any{
-			"service":     "infrastructure-mcp-server",
-			"version":     "0.3.0",
-			"status":      "healthy",
-			"entrypoint":  "https://mcp.svc.plus",
-			"cluster":     "SIT-K3S-V6",
-			"host_ip":     "172.237.9.58",
+			"service":    "infrastructure-mcp-server",
+			"version":    "0.3.0",
+			"status":     "healthy",
+			"entrypoint": "https://mcp.svc.plus",
+			"cluster":    "SIT-K3S-V6",
+			"host_ip":    "172.237.9.58",
 			"modes": map[string]any{
 				"mode_1_web_rest_api": map[string]string{
 					"description": "Universal HTTP REST APIs for Web SaaS Consoles, CI/CD, and Scripts",
@@ -637,7 +670,7 @@ func (h *HTTPServer) handleRoot(w http.ResponseWriter, r *http.Request) {
 				"grafana_mcp":     "http://mcp-grafana.platform-mcp-sit:8000/v1/grafana/sse",
 				"victoriametrics": "http://observability-observability-stack-victoria-metrics.observability-sit:8428",
 				"victorialogs":    "http://observability-observability-stack-victoria-logs.observability-sit:9428",
-				"victoriatraces":   "http://observability-observability-stack-victoria-traces.observability-sit:10428",
+				"victoriatraces":  "http://observability-observability-stack-victoria-traces.observability-sit:10428",
 			},
 		})
 		return

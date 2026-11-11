@@ -120,3 +120,19 @@ curl -s --resolve mcp.svc.plus:443:172.237.9.58 \
 
 #### Antigravity 原生集成
 可在工作区或全局 `mcp.json` 中配置该 stdio 管道，服务启动后直接完成 `initialize` 与 `tools/list` 握手，无需经过网络代理。
+
+## Inbound authentication
+
+When `MCP_SERVICE_TOKEN` is set, every HTTP path except `/healthz` and `/health`
+requires `Authorization: Bearer <token>`. When it is unset the server logs a
+warning at startup and accepts unauthenticated requests (front it with an
+authenticating proxy in that case).
+
+## Backend transports
+
+- `streamable-http`: `Mcp-Session-Id` is stored after `initialize` and replayed; a 404 on a stale session triggers one re-initialize + retry. `text/event-stream` replies are parsed.
+- `sse`: legacy HTTP+SSE (GET event stream, POST to the announced endpoint), e.g. mcp-grafana `/sse`.
+- stdio: each request is bounded by `timeout_seconds` (default 30s); a hung child is killed and restarted on the next call.
+
+Per-backend `allowed_tools` / `disabled_tools` (shell patterns, deny wins) filter both `tools/list` and `tools/call`.
+SSH targets for the `ssh` backend are rendered from CMDB, see `cmdb-ssh-inventory.md`.

@@ -24,9 +24,7 @@ type Store struct {
 }
 
 func NewStore(graphStore *graph.Store, baseDir string, telemetryEngine ...*telemetry.Engine) *Store {
-	if baseDir == "" {
-		baseDir = "/Users/shenlan/workspaces/ai-workspace-infra"
-	}
+	baseDir = resolveBaseDir(baseDir)
 	var tel *telemetry.Engine
 	if len(telemetryEngine) > 0 && telemetryEngine[0] != nil {
 		tel = telemetryEngine[0]
@@ -278,6 +276,16 @@ func (s *Store) Sync(ctx context.Context) (*SyncReport, error) {
 			"http": "200 OK",
 		},
 	})
+
+	// 4b. Ingest the declared host inventory (SSH inspection targets).
+	hosts, hostSource, err := loadHostInventory(s.baseDir)
+	if err != nil {
+		report.Errors = append(report.Errors, err.Error())
+	}
+	for _, h := range hosts {
+		s.ingestResourceLocked(hostResource(h, hostSource))
+	}
+	report.Sources = append(report.Sources, "host-inventory:"+hostSource)
 
 	// 5. Ingest existing pipeline cmdb.json if found
 	candidates := []string{

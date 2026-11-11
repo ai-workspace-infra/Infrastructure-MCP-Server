@@ -5,7 +5,10 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path"
 	"path/filepath"
+	"strings"
+	"time"
 )
 
 type Config struct {
@@ -19,16 +22,78 @@ type ServerConfig struct {
 }
 
 type BackendConfig struct {
-	Name        string            `json:"name"`
-	Capability  string            `json:"capability"`
-	Command     string            `json:"command,omitempty"`
-	Args        []string          `json:"args,omitempty"`
-	URL         string            `json:"url,omitempty"`
-	Transport   string            `json:"transport,omitempty"`
-	BearerToken string            `json:"bearer_token,omitempty"`
-	Headers     map[string]string `json:"headers,omitempty"`
-	Env         map[string]string `json:"env,omitempty"`
-	Enabled     *bool             `json:"enabled,omitempty"`
+	Name        string   `json:"name"`
+	Capability  string   `json:"capability"`
+	Command     string   `json:"command,omitempty"`
+	Args        []string `json:"args,omitempty"`
+	URL         string   `json:"url,omitempty"`
+	Transport   string   `json:"transport,omitempty"`
+	BearerToken string   `json:"bearer_token,omitempty"`
+	// BearerTokenEnv names an environment variable holding the bearer token,
+	// so the token can come from a Kubernetes Secret instead of the config file.
+	// It is used only when bearer_token is empty.
+	BearerTokenEnv string            `json:"bearer_token_env,omitempty"`
+	Headers        map[string]string `json:"headers,omitempty"`
+	Env            map[string]string `json:"env,omitempty"`
+	Enabled        *bool             `json:"enabled,omitempty"`
+	// TimeoutSeconds bounds every request to this backend (stdio or HTTP).
+	// Zero means the default (30s).
+	TimeoutSeconds int `json:"timeout_seconds,omitempty"`
+	// AllowedTools, when non-empty, is an allow-list of downstream tool names
+	// (shell-style patterns, e.g. "query*") exposed through the gateway.
+	AllowedTools []string `json:"allowed_tools,omitempty"`
+	// DisabledTools is a deny-list of downstream tool names (shell-style
+	// patterns). Deny always wins over allow.
+	DisabledTools []string `json:"disabled_tools,omitempty"`
+}
+
+// DefaultBackendTimeout is used when a backend does not set timeout_seconds.
+const DefaultBackendTimeout = 30 * time.Second
+
+// Timeout returns the effective per-request timeout for the backend.
+func (b BackendConfig) Timeout() time.Duration {
+	if b.TimeoutSeconds > 0 {
+		return time.Duration(b.TimeoutSeconds) * time.Second
+	}
+	return DefaultBackendTimeout
+}
+
+// ResolvedBearerToken returns bearer_token, else the value of bearer_token_env.
+func (b BackendConfig) ResolvedBearerToken() string {
+	if b.BearerToken != "" {
+		return b.BearerToken
+	}
+	if b.BearerTokenEnv != "" {
+		return strings.TrimSpace(os.Getenv(b.BearerTokenEnv))
+	}
+	return ""
+}
+
+// ToolAllowed reports whether a downstream tool may be listed or called
+// through the gateway according to allowed_tools / disabled_tools.
+func (b BackendConfig) ToolAllowed(tool string) bool {
+	for _, pattern := range b.DisabledTools {
+		if matchToolPattern(pattern, tool) {
+			return false
+		}
+	}
+	if len(b.AllowedTools) == 0 {
+		return true
+	}
+	for _, pattern := range b.AllowedTools {
+		if matchToolPattern(pattern, tool) {
+			return true
+		}
+	}
+	return false
+}
+
+func matchToolPattern(pattern, tool string) bool {
+	if pattern == tool {
+		return true
+	}
+	ok, err := path.Match(pattern, tool)
+	return err == nil && ok
 }
 
 func Default() Config {
@@ -78,6 +143,16 @@ func (c Config) Validate() error {
 		seen[backend.Name] = struct{}{}
 		if backend.Command == "" && backend.URL == "" {
 			return fmt.Errorf("backend %q: either command or url must be specified", backend.Name)
+		}
+		switch backend.Transport {
+		case "", "streamable-http", "http", "sse":
+		default:
+			return fmt.Errorf("backend %q: unsupported transport %q (want streamable-http or sse)", backend.Name, backend.Transport)
+		}
+		for _, pattern := range append(append([]string{}, backend.AllowedTools...), backend.DisabledTools...) {
+			if _, err := path.Match(pattern, ""); err != nil {
+				return fmt.Errorf("backend %q: invalid tool pattern %q: %w", backend.Name, pattern, err)
+			}
 		}
 	}
 	return nil

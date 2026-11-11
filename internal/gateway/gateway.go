@@ -4,9 +4,11 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"log"
 	"net/http"
 	"os/exec"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/ai-workspace-infra/Infrastructure-MCP-Server/internal/catalog"
@@ -26,8 +28,39 @@ type Backend interface {
 	Health(context.Context) error
 }
 
+// configuredBackend is implemented by backends that expose their config,
+// which the gateway uses for allowed_tools / disabled_tools filtering.
+type configuredBackend interface {
+	Config() config.BackendConfig
+}
+
+func backendConfig(b Backend) (config.BackendConfig, bool) {
+	if cb, ok := b.(configuredBackend); ok {
+		return cb.Config(), true
+	}
+	return config.BackendConfig{}, false
+}
+
+// toolAllowed applies the backend's gateway tool policy.
+func toolAllowed(b Backend, tool string) bool {
+	cfg, ok := backendConfig(b)
+	if !ok {
+		return true
+	}
+	return cfg.ToolAllowed(tool)
+}
+
+type backendToolState struct {
+	Count     int
+	Filtered  int
+	Error     string
+	CheckedAt time.Time
+}
+
 type Gateway struct {
 	backends  []Backend
+	toolMu    sync.Mutex
+	toolState map[string]backendToolState
 	graph     *graph.Store
 	cmdb      *cmdb.Store
 	catalog   *catalog.Store
@@ -50,6 +83,9 @@ func (c *gatewayMCPCaller) Call(ctx context.Context, toolName string, arguments 
 	backendName, rawTool := toolName[:separator], toolName[separator+1:]
 	for _, b := range c.gw.backends {
 		if b.Name() == backendName {
+			if !toolAllowed(b, rawTool) {
+				return nil, fmt.Errorf("tool %q is disabled by gateway policy for backend %q", rawTool, backendName)
+			}
 			res, err := b.Call(ctx, rawTool, arguments)
 			if err != nil {
 				return nil, err
@@ -65,7 +101,8 @@ func (c *gatewayMCPCaller) Call(ctx context.Context, toolName string, arguments 
 
 func New(cfg config.Config, graphStore *graph.Store, cmdbStores ...*cmdb.Store) *Gateway {
 	gw := &Gateway{
-		graph: graphStore,
+		graph:     graphStore,
+		toolState: map[string]backendToolState{},
 	}
 
 	backends := make([]Backend, 0, len(cfg.Backends))
@@ -159,7 +196,8 @@ func (g *Gateway) Tools(ctx context.Context) ([]mcp.Tool, error) {
 			InputSchema: objectSchema(map[string]any{
 				"environment":   map[string]any{"type": "string", "description": "Filter by environment: sit, uat, prod, shared"},
 				"provider":      map[string]any{"type": "string", "description": "Filter by provider: linode, gcp, aws, cloudflare, vultr"},
-				"kind":          map[string]any{"type": "string", "description": "Filter by kind: compute, dns, service, database, network"},
+				"kind":          map[string]any{"type": "string", "description": "Filter by kind: compute, host (SSH inspection targets, carry an ssh block), dns, service, database, network"},
+				"role":          map[string]any{"type": "string", "description": "Filter by functional role, e.g. ops (host running the MCP gateway + SSH executor), edge-agent, k3s-node"},
 				"status":        map[string]any{"type": "string", "description": "Filter by status: running, active, standby, ready"},
 				"node_id":       map[string]any{"type": "string", "description": "Graph node ID to inspect with its connected edges and topology (e.g. 'service/observability-gateway')"},
 				"include_graph": map[string]any{"type": "boolean", "description": "If true, attach connected environment graph topology to the response"},
@@ -268,26 +306,94 @@ func (g *Gateway) Tools(ctx context.Context) ([]mcp.Tool, error) {
 	}
 
 	for _, backend := range g.backends {
-		backendTools, err := backend.Tools(ctx)
-		if err != nil {
-			continue
-		}
-		for _, tool := range backendTools {
-			tool.Name = backend.Name() + "." + tool.Name
-			tools = append(tools, tool)
-		}
+		listed, _ := g.backendTools(ctx, backend)
+		tools = append(tools, listed...)
 	}
 	return tools, nil
+}
+
+// backendTools lists a backend's tools (prefixed with the backend name and
+// filtered by policy) and records the outcome so infra.backends and
+// infra.health can report failures instead of silently dropping them.
+func (g *Gateway) backendTools(ctx context.Context, backend Backend) ([]mcp.Tool, error) {
+	backendTools, err := backend.Tools(ctx)
+	state := backendToolState{CheckedAt: time.Now().UTC()}
+	if err != nil {
+		state.Error = err.Error()
+		log.Printf("gateway: backend %q tools/list failed: %v", backend.Name(), err)
+		g.recordToolState(backend.Name(), state)
+		return nil, err
+	}
+	out := make([]mcp.Tool, 0, len(backendTools))
+	for _, tool := range backendTools {
+		if !toolAllowed(backend, tool.Name) {
+			state.Filtered++
+			continue
+		}
+		tool.Name = backend.Name() + "." + tool.Name
+		out = append(out, tool)
+	}
+	state.Count = len(out)
+	g.recordToolState(backend.Name(), state)
+	return out, nil
+}
+
+func (g *Gateway) recordToolState(name string, state backendToolState) {
+	g.toolMu.Lock()
+	defer g.toolMu.Unlock()
+	if g.toolState == nil {
+		g.toolState = map[string]backendToolState{}
+	}
+	g.toolState[name] = state
+}
+
+func (g *Gateway) backendsStatus(ctx context.Context) (mcp.CallToolResult, error) {
+	backends := make([]map[string]any, 0, len(g.backends))
+	for _, backend := range g.backends {
+		entry := map[string]any{"name": backend.Name(), "capability": backend.Capability()}
+		if cfg, ok := backendConfig(backend); ok {
+			transport := cfg.Transport
+			if transport == "" {
+				if cfg.URL != "" {
+					transport = "streamable-http"
+				} else {
+					transport = "stdio"
+				}
+			}
+			entry["transport"] = transport
+			if cfg.URL != "" {
+				entry["url"] = cfg.URL
+			} else {
+				entry["command"] = cfg.Command
+			}
+			if len(cfg.AllowedTools) > 0 {
+				entry["allowed_tools"] = cfg.AllowedTools
+			}
+			if len(cfg.DisabledTools) > 0 {
+				entry["disabled_tools"] = cfg.DisabledTools
+			}
+		}
+		_, err := g.backendTools(ctx, backend)
+		g.toolMu.Lock()
+		state := g.toolState[backend.Name()]
+		g.toolMu.Unlock()
+		entry["tools_ok"] = err == nil
+		entry["tool_count"] = state.Count
+		if state.Filtered > 0 {
+			entry["tools_filtered"] = state.Filtered
+		}
+		if state.Error != "" {
+			entry["tools_error"] = state.Error
+		}
+		backends = append(backends, entry)
+	}
+	return mcp.JSONResult(map[string]any{"backends": backends})
 }
 
 func (g *Gateway) Call(ctx context.Context, name string, arguments map[string]any) (mcp.CallToolResult, error) {
 	switch name {
 	case "infra.backends":
-		backends := make([]map[string]string, 0, len(g.backends))
-		for _, backend := range g.backends {
-			backends = append(backends, map[string]string{"name": backend.Name(), "capability": backend.Capability()})
-		}
-		return mcp.JSONResult(map[string]any{"backends": backends})
+		return g.backendsStatus(ctx)
 	case "infra.graph.query":
 		query, _ := arguments["query"].(string)
 		return mcp.JSONResult(g.graph.Query(query))
@@ -378,6 +484,9 @@ func (g *Gateway) Call(ctx context.Context, name string, arguments map[string]an
 	backendName, toolName := name[:separator], name[separator+1:]
 	for _, backend := range g.backends {
 		if backend.Name() == backendName {
+			if !toolAllowed(backend, toolName) {
+				return mcp.CallToolResult{}, fmt.Errorf("tool %q is disabled by gateway policy for backend %q", toolName, backendName)
+			}
 			return backend.Call(ctx, toolName, arguments)
 		}
 	}
@@ -418,7 +527,17 @@ func (g *Gateway) cmdbQuery(arguments map[string]any) (mcp.CallToolResult, error
 	status, _ := arguments["status"].(string)
 	includeGraph, _ := arguments["include_graph"].(bool)
 
+	role, _ := arguments["role"].(string)
 	resources := g.cmdb.Resources(env, provider, kind, status)
+	if role != "" {
+		filtered := []cmdb.Resource{}
+		for _, r := range resources {
+			if cmdb.HasRole(r, role) {
+				filtered = append(filtered, r)
+			}
+		}
+		resources = filtered
+	}
 	resp := map[string]any{
 		"total":     len(resources),
 		"resources": resources,
@@ -701,6 +820,12 @@ func (g *Gateway) health(ctx context.Context) (mcp.CallToolResult, error) {
 			status["healthy"] = false
 			status["error"] = err.Error()
 		}
+		if tools, err := g.backendTools(ctx, backend); err != nil {
+			status["healthy"] = false
+			status["tools_error"] = err.Error()
+		} else {
+			status["tool_count"] = len(tools)
+		}
 		statuses = append(statuses, status)
 	}
 	return mcp.JSONResult(map[string]any{"backends": statuses})
@@ -761,20 +886,20 @@ func (g *Gateway) gatewayQuery(ctx context.Context, arguments map[string]any) (m
 
 	gateways := []map[string]any{
 		{
-			"name":       "traefik-ingress",
-			"type":       "ingress-controller",
-			"provider":   "Traefik",
-			"clusters":   []string{"SIT-K3S-V6", "PROD-K3S-V6"},
+			"name":        "traefik-ingress",
+			"type":        "ingress-controller",
+			"provider":    "Traefik",
+			"clusters":    []string{"SIT-K3S-V6", "PROD-K3S-V6"},
 			"entrypoints": []string{"web (:80)", "websecure (:443)"},
-			"status":     "running",
+			"status":      "running",
 		},
 		{
-			"name":       "caddy-ingress",
-			"type":       "ingress-class",
-			"provider":   "Caddy",
-			"clusters":   []string{"SIT-K3S-V6"},
+			"name":        "caddy-ingress",
+			"type":        "ingress-class",
+			"provider":    "Caddy",
+			"clusters":    []string{"SIT-K3S-V6"},
 			"entrypoints": []string{"http (:8080)", "https (:8443)"},
-			"status":     "running",
+			"status":      "running",
 		},
 	}
 
@@ -939,100 +1064,100 @@ func (g *Gateway) domainsQuery(ctx context.Context, arguments map[string]any) (m
 			"capabilities": []string{"Metrics TSDB (:8428)", "Logs (:9428)", "Traces (:10428)", "Grafana (:3000)"},
 		},
 		{
-			"domain":       "console.svc.plus",
-			"environment":  "prod",
-			"cluster":      "PROD-K3S-V6",
-			"target_ip":    "172.237.24.232",
-			"port":         443,
-			"tls":          "Valid (*.svc.plus)",
-			"service":      "web-saas-console",
-			"namespace":    "web-saas-prod",
-			"status":       "PASS",
-			"description":  "Web SaaS Console Frontend & Operations Hub",
+			"domain":      "console.svc.plus",
+			"environment": "prod",
+			"cluster":     "PROD-K3S-V6",
+			"target_ip":   "172.237.24.232",
+			"port":        443,
+			"tls":         "Valid (*.svc.plus)",
+			"service":     "web-saas-console",
+			"namespace":   "web-saas-prod",
+			"status":      "PASS",
+			"description": "Web SaaS Console Frontend & Operations Hub",
 		},
 		{
-			"domain":       "accounts.svc.plus",
-			"environment":  "prod",
-			"cluster":      "PROD-K3S-V6",
-			"target_ip":    "172.237.24.232",
-			"port":         443,
-			"tls":          "Valid (*.svc.plus)",
-			"service":      "web-saas-accounts",
-			"namespace":    "web-saas-prod",
-			"status":       "PASS",
-			"description":  "User Accounts, Authentication & Identity Federation",
+			"domain":      "accounts.svc.plus",
+			"environment": "prod",
+			"cluster":     "PROD-K3S-V6",
+			"target_ip":   "172.237.24.232",
+			"port":        443,
+			"tls":         "Valid (*.svc.plus)",
+			"service":     "web-saas-accounts",
+			"namespace":   "web-saas-prod",
+			"status":      "PASS",
+			"description": "User Accounts, Authentication & Identity Federation",
 		},
 		{
-			"domain":       "billing.svc.plus",
-			"environment":  "prod",
-			"cluster":      "PROD-K3S-V6",
-			"target_ip":    "172.237.24.232",
-			"port":         443,
-			"tls":          "Valid (*.svc.plus)",
-			"service":      "web-saas-billing",
-			"namespace":    "web-saas-prod",
-			"status":       "PASS",
-			"description":  "Billing, Subscriptions & Order Management",
+			"domain":      "billing.svc.plus",
+			"environment": "prod",
+			"cluster":     "PROD-K3S-V6",
+			"target_ip":   "172.237.24.232",
+			"port":        443,
+			"tls":         "Valid (*.svc.plus)",
+			"service":     "web-saas-billing",
+			"namespace":   "web-saas-prod",
+			"status":      "PASS",
+			"description": "Billing, Subscriptions & Order Management",
 		},
 		{
-			"domain":       "vault.svc.plus",
-			"environment":  "prod",
-			"cluster":      "PROD-K3S-V6",
-			"target_ip":    "172.237.24.232",
-			"port":         443,
-			"tls":          "Valid (*.svc.plus)",
-			"service":      "vault",
-			"namespace":    "vault-prod",
-			"status":       "PASS",
-			"description":  "Production HashiCorp Vault Secrets Management",
+			"domain":      "vault.svc.plus",
+			"environment": "prod",
+			"cluster":     "PROD-K3S-V6",
+			"target_ip":   "172.237.24.232",
+			"port":        443,
+			"tls":         "Valid (*.svc.plus)",
+			"service":     "vault",
+			"namespace":   "vault-prod",
+			"status":      "PASS",
+			"description": "Production HashiCorp Vault Secrets Management",
 		},
 		{
-			"domain":       "mcp.sit.onwalk.net",
-			"environment":  "sit",
-			"cluster":      "SIT-K3S-V6",
-			"target_ip":    "172.237.9.58",
-			"port":         443,
-			"tls":          "Valid (*.onwalk.net)",
-			"service":      "infrastructure-mcp-server",
-			"namespace":    "platform-mcp-sit",
-			"status":       "PASS",
-			"description":  "Legacy / Backward-compatible SIT MCP Alias",
+			"domain":      "mcp.sit.onwalk.net",
+			"environment": "sit",
+			"cluster":     "SIT-K3S-V6",
+			"target_ip":   "172.237.9.58",
+			"port":        443,
+			"tls":         "Valid (*.onwalk.net)",
+			"service":     "infrastructure-mcp-server",
+			"namespace":   "platform-mcp-sit",
+			"status":      "PASS",
+			"description": "Legacy / Backward-compatible SIT MCP Alias",
 		},
 		{
-			"domain":       "console-sit.onwalk.net",
-			"environment":  "sit",
-			"cluster":      "SIT-K3S-V6",
-			"target_ip":    "172.237.9.58",
-			"port":         443,
-			"tls":          "Valid (*.onwalk.net)",
-			"service":      "web-saas-console",
-			"namespace":    "web-saas-sit",
-			"status":       "PASS",
-			"description":  "SIT Integration Console Frontend",
+			"domain":      "console-sit.onwalk.net",
+			"environment": "sit",
+			"cluster":     "SIT-K3S-V6",
+			"target_ip":   "172.237.9.58",
+			"port":        443,
+			"tls":         "Valid (*.onwalk.net)",
+			"service":     "web-saas-console",
+			"namespace":   "web-saas-sit",
+			"status":      "PASS",
+			"description": "SIT Integration Console Frontend",
 		},
 		{
-			"domain":       "accounts-sit.onwalk.net",
-			"environment":  "sit",
-			"cluster":      "SIT-K3S-V6",
-			"target_ip":    "172.237.9.58",
-			"port":         443,
-			"tls":          "Valid (*.onwalk.net)",
-			"service":      "web-saas-accounts",
-			"namespace":    "web-saas-sit",
-			"status":       "PASS",
-			"description":  "SIT Integration Accounts Service",
+			"domain":      "accounts-sit.onwalk.net",
+			"environment": "sit",
+			"cluster":     "SIT-K3S-V6",
+			"target_ip":   "172.237.9.58",
+			"port":        443,
+			"tls":         "Valid (*.onwalk.net)",
+			"service":     "web-saas-accounts",
+			"namespace":   "web-saas-sit",
+			"status":      "PASS",
+			"description": "SIT Integration Accounts Service",
 		},
 		{
-			"domain":       "billing-sit.onwalk.net",
-			"environment":  "sit",
-			"cluster":      "SIT-K3S-V6",
-			"target_ip":    "172.237.9.58",
-			"port":         443,
-			"tls":          "Valid (*.onwalk.net)",
-			"service":      "web-saas-billing",
-			"namespace":    "web-saas-sit",
-			"status":       "PASS",
-			"description":  "SIT Integration Billing Service",
+			"domain":      "billing-sit.onwalk.net",
+			"environment": "sit",
+			"cluster":     "SIT-K3S-V6",
+			"target_ip":   "172.237.9.58",
+			"port":        443,
+			"tls":         "Valid (*.onwalk.net)",
+			"service":     "web-saas-billing",
+			"namespace":   "web-saas-sit",
+			"status":      "PASS",
+			"description": "SIT Integration Billing Service",
 		},
 	}
 
