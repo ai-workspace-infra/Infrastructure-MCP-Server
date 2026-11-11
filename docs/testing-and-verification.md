@@ -171,3 +171,11 @@ curl -N -s --resolve observability.svc.plus:443:172.237.9.58 \
 # data: /v1/grafana/sse?sessionid=CGZKMEDUE74E6KFJG4ZKTDFEJR
 ```
 
+
+## Transport, auth and policy regression tests
+
+`go test ./...` now also covers:
+
+- `internal/mcp/transport_test.go`: `Mcp-Session-Id` capture/replay and re-initialize on 404, SSE-framed POST replies, legacy SSE transport (Grafana), inbound Bearer auth (`MCP_SERVICE_TOKEN`, `/healthz` open), stdio child timeout + restart.
+- `internal/config/filter_test.go`, `internal/gateway/policy_test.go`: `allowed_tools` / `disabled_tools`, `tools/list` failures surfaced in `infra.backends` / `infra.health`.
+- `internal/sshconfig/render_test.go`: CMDB host inventory → ssh-mcp-server config (10 seeded hosts, `auditor`, no IPs, 0600, inventory-file override, `INFRA_CMDB_BASE_DIR`).

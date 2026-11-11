@@ -8,49 +8,87 @@
       "name": "observability-grafana",
       "capability": "observability",
       "transport": "sse",
-      "url": "https://mcp-server.svc.plus/v1/grafana/sse",
-      "enabled": true
+      "url": "https://observability.svc.plus/mcp/v1/grafana/sse",
+      "enabled": false,
+      "timeout_seconds": 30
     },
     {
       "name": "observability-metrics",
       "capability": "observability",
       "transport": "streamable-http",
-      "url": "https://mcp-server.svc.plus/v1/metrics/mcp",
-      "enabled": true
+      "url": "https://observability.svc.plus/mcp/v1/metrics/mcp",
+      "enabled": true,
+      "timeout_seconds": 30
     },
     {
       "name": "observability-logs",
       "capability": "observability",
       "transport": "streamable-http",
-      "url": "https://mcp-server.svc.plus/v1/logs/mcp",
-      "enabled": true
+      "url": "https://observability.svc.plus/mcp/v1/logs/mcp",
+      "enabled": true,
+      "timeout_seconds": 30
     },
     {
       "name": "observability-traces",
       "capability": "observability",
       "transport": "streamable-http",
-      "url": "https://mcp-server.svc.plus/v1/traces/mcp",
-      "enabled": true
+      "url": "https://observability.svc.plus/mcp/v1/traces/mcp",
+      "enabled": true,
+      "timeout_seconds": 30
+    },
+    {
+      "name": "ssh",
+      "capability": "runtime",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@fangjunjie/ssh-mcp-server",
+        "--config-file",
+        "/run/ssh-mcp/ssh-config.json",
+        "--pty",
+        "false"
+      ],
+      "timeout_seconds": 30,
+      "allowed_tools": [
+        "list-servers",
+        "execute-command"
+      ],
+      "disabled_tools": [
+        "write-file",
+        "upload",
+        "download",
+        "read-file",
+        "job-*"
+      ],
+      "enabled": false
     },
     {
       "name": "kubernetes",
       "capability": "runtime",
       "command": "npx",
-      "args": ["-y", "@modelcontextprotocol/server-kubernetes"],
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-kubernetes"
+      ],
       "enabled": false
     },
     {
       "name": "helm",
       "capability": "runtime",
       "command": "npx",
-      "args": ["-y", "@modelcontextprotocol/server-helm"],
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-helm"
+      ],
       "enabled": false
     },
     {
       "name": "netbox",
       "capability": "cmdb",
       "command": "uvx",
-      "args": ["netbox-mcp"],
+      "args": [
+        "netbox-mcp"
+      ],
       "enabled": false
     },
     {
@@ -71,7 +109,9 @@
       "name": "vault",
       "capability": "security",
       "command": "uvx",
-      "args": ["vault-mcp"],
+      "args": [
+        "vault-mcp"
+      ],
       "enabled": false
     },
     {
@@ -85,14 +125,20 @@
       "name": "github",
       "capability": "scm",
       "command": "npx",
-      "args": ["-y", "@modelcontextprotocol/server-github"],
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-github"
+      ],
       "enabled": false
     },
     {
       "name": "cloudflare",
       "capability": "dns",
       "command": "npx",
-      "args": ["-y", "@cloudflare/mcp-server-cloudflare"],
+      "args": [
+        "-y",
+        "@cloudflare/mcp-server-cloudflare"
+      ],
       "enabled": false
     }
   ]

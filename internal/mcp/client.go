@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -69,6 +70,9 @@ func (c *ProcessClient) requestLocked(ctx context.Context, method string, params
 	if err := c.startLocked(); err != nil {
 		return nil, err
 	}
+	ctx, cancel := context.WithTimeout(ctx, c.config.Timeout())
+	defer cancel()
+
 	c.nextID++
 	id, _ := json.Marshal(c.nextID)
 	request := Request{JSONRPC: "2.0", ID: id, Method: method}
@@ -80,27 +84,71 @@ func (c *ProcessClient) requestLocked(ctx context.Context, method string, params
 		return nil, err
 	}
 	if _, err := c.stdin.Write(append(data, '\n')); err != nil {
+		c.resetLocked()
 		return nil, err
 	}
 
-	for {
-		line, err := c.reader.ReadBytes('\n')
-		if err != nil {
-			return nil, err
+	type readResult struct {
+		raw json.RawMessage
+		err error
+	}
+	reader := c.reader
+	done := make(chan readResult, 1)
+	go func() {
+		for {
+			line, err := reader.ReadBytes('\n')
+			if err != nil {
+				done <- readResult{err: fmt.Errorf("%s: read from %s: %w", method, c.config.Name, err)}
+				return
+			}
+			var response Response
+			if err := json.Unmarshal(line, &response); err != nil {
+				continue
+			}
+			if string(response.ID) != string(id) {
+				continue
+			}
+			if response.Error != nil {
+				done <- readResult{err: fmt.Errorf("%s: %s", method, response.Error.Message)}
+				return
+			}
+			raw, err := json.Marshal(response.Result)
+			done <- readResult{raw: raw, err: err}
+			return
 		}
-		var response Response
-		if err := json.Unmarshal(line, &response); err != nil {
-			continue
+	}()
+
+	select {
+	case res := <-done:
+		if res.err != nil && errors.Is(res.err, io.EOF) {
+			c.resetLocked()
 		}
-		if string(response.ID) != string(id) {
-			continue
-		}
-		if response.Error != nil {
-			return nil, fmt.Errorf("%s: %s", method, response.Error.Message)
-		}
-		return json.Marshal(response.Result)
+		return res.raw, res.err
+	case <-ctx.Done():
+		// The child is wedged or too slow: kill it so the next call starts a
+		// fresh process instead of reading a stale reply.
+		c.resetLocked()
+		return nil, fmt.Errorf("%s: backend %s did not answer within %s: %w", method, c.config.Name, c.config.Timeout(), ctx.Err())
 	}
 }
+
+// resetLocked kills the child process and forgets the session.
+func (c *ProcessClient) resetLocked() {
+	if c.stdin != nil {
+		_ = c.stdin.Close()
+	}
+	if c.command != nil && c.command.Process != nil {
+		_ = c.command.Process.Kill()
+		go func(cmd *exec.Cmd) { _ = cmd.Wait() }(c.command)
+	}
+	c.command = nil
+	c.stdin = nil
+	c.reader = nil
+	c.initialized = false
+}
+
+// Config exposes the backend configuration (used for tool filtering).
+func (c *ProcessClient) Config() config.BackendConfig { return c.config }
 
 func (c *ProcessClient) initializeLocked(ctx context.Context) error {
 	if c.initialized {
@@ -174,9 +222,6 @@ func (c *ProcessClient) Close() error {
 	if c.command == nil || c.command.Process == nil {
 		return nil
 	}
-	_ = c.stdin.Close()
-	err := c.command.Process.Kill()
-	c.command = nil
-	c.initialized = false
-	return err
+	c.resetLocked()
+	return nil
 }
