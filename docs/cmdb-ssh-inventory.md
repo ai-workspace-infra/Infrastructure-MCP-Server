@@ -16,11 +16,11 @@ Every host resource carries a non-secret `ssh` block:
 
 | field | meaning |
 |---|---|
-| `ssh.host` | hostname or `~/.ssh/config` alias — never an IP in git |
+| `ssh.host` | FQDN to dial (GitOps/CMDB-declared; `ssh_host` overrides `hostname` for short node names, e.g. `sit-k3s-v6` → `sit-k3s-v6.svc.plus`) — never an IP in git |
 | `ssh.user` | read-only account, default `auditor` |
 | `ssh.port` | default 22 |
 | `ssh.connection_name` | ssh-mcp-server `connectionName` (first DNS label, matches the VictoriaMetrics `instance` prefix) |
-| `ssh.vault_ref` | Vault KV v2 path holding the private key (and, if the hostname is an alias, the address). Default (proposed): `kv/data/CICD/infrastructure-mcp` |
+| `ssh.vault_ref` | Vault KV v2 path holding the private key (field `ssh_private_key`) of the OPS environment: `kv/data/sit/platform/mcp` |
 
 Labels: `environment` (sit/prod), `provider`, `attributes.role`
 (`k3s-node`, `edge-agent`), `attributes.cluster`.
@@ -52,7 +52,7 @@ One-shot:
 
 ```bash
 # key materialised from Vault into a tmpfs file, never committed
-vault kv get -field=ssh_private_key kv/CICD/infrastructure-mcp > /run/ssh-mcp/auditor_ed25519 && chmod 600 /run/ssh-mcp/auditor_ed25519
+vault kv get -field=ssh_private_key kv/sit/platform/mcp > /run/ssh-mcp/auditor_ed25519 && chmod 600 /run/ssh-mcp/auditor_ed25519
 SSH_MCP_PRIVATE_KEY_PATH=/run/ssh-mcp/auditor_ed25519 \
   infrastructure-mcp-server -render-ssh-config /run/ssh-mcp/ssh-config.json -ssh-env sit,prod
 ```
@@ -86,25 +86,26 @@ Other agents reach SSH tools only through `https://mcp.svc.plus` with
 `Authorization: Bearer <MCP_SERVICE_TOKEN>`; nobody needs a local private key.
 
 - OPS role: CMDB host with `roles` containing `ops` (`infra.cmdb.query {"kind":"host","role":"ops"}`).
-  Today `sit-k3s-v6` holds `["sit","ops"]` with `roles_temporary: true`; move the role by editing the
-  seed or `hosts.json`, then move the gitops unit to that host's cluster.
+  Today `sit-k3s-v6` holds `["sit","ops"]` with `roles_temporary: true`.
 - Pod layout (gitops `platform-mcp-sit`):
-  - initContainer (gateway image): `-render-ssh-config /run/ssh-mcp/ssh-config.json` from CMDB into a
-    shared `emptyDir`; `SSH_MCP_PRIVATE_KEY_PATH` points at the sidecar's Secret mount; optional
-    `-ssh-host-map` (Vault-sourced `{hostname: address}`) resolves short names without committing IPs.
-  - sidecar `ssh-mcp-server` (`node` image, `@fangjunjie/ssh-mcp-server` pinned version):
-    `--mcp-transport http --http-host 127.0.0.1 --http-port 3000`, bearer `SSH_MCP_HTTP_TOKEN`. Its
-    HTTP transport is stateless Streamable HTTP with JSON responses (no `Mcp-Session-Id`).
-  - gateway backend:
-    ```json
-    {"name": "ssh", "capability": "runtime", "transport": "streamable-http",
-     "url": "http://127.0.0.1:3000/mcp", "bearer_token_env": "SSH_MCP_HTTP_TOKEN",
-     "allowed_tools": ["list-servers", "execute-command"],
-     "disabled_tools": ["write-file", "upload", "download", "read-file", "job-*"]}
-    ```
-  - `bearer_token_env` (new) reads the backend token from an env var, so it can come from a Secret.
-- Verified locally: gateway → ssh-mcp-server 1.11.0 HTTP mode lists only `ssh.execute-command` /
-  `ssh.list-servers`; `ssh.write-file` is refused by gateway policy.
-- Note: `list-servers` output shows the dial address, so host-map addresses become visible to
-  authenticated agents at runtime (never in git/CMDB).
+  - initContainer (gateway image): `-render-ssh-config /run/ssh-mcp/ssh-config.json` from CMDB into an
+    in-memory `emptyDir`; `SSH_MCP_PRIVATE_KEY_PATH` points at the sidecar's Secret mount.
+  - sidecar `ssh-mcp-server` (`node` image, `@fangjunjie/ssh-mcp-server@1.11.0`):
+    `--mcp-transport http --http-host 127.0.0.1 --http-port 3000`, bearer `SSH_MCP_HTTP_TOKEN`
+    (stateless Streamable HTTP, JSON responses).
+  - gateway backend `ssh`: `streamable-http`, `bearer_token_env: SSH_MCP_HTTP_TOKEN`,
+    `allowed_tools: [list-servers, execute-command]`.
+- Addresses: hostnames/FQDNs + `auditor` come from GitOps/CMDB only. Short node names need a DNS
+  record declared in IaC (`sit-k3s-v6.svc.plus`, `prod-k3s-v6.svc.plus`).
 - Note: ssh-mcp-server does not verify SSH host keys; restrict egress and use a dedicated `auditor` key.
+
+## Vault layout (secrets only)
+
+Non-secret values (usernames, URLs, hostnames, ports, `auditor`) live in GitOps/CMDB, never in Vault.
+
+| Path (KV v2 API) | Fields | Consumers |
+|---|---|---|
+| `kv/data/<env>/platform/mcp` | `mcp_service_token`, `ssh_private_key`, `ssh_mcp_http_token` | gateway inbound auth, ssh-mcp-server sidecar |
+| `kv/data/<env>/platform/observability` | `vmauth_password`, `grafana_admin_password` (later `grafana_mcp_sa_token`) | Vector agents / vmauth, Grafana, mcp-grafana |
+
+MCP components reference observability fields through their own ExternalSecret; nothing is copied.

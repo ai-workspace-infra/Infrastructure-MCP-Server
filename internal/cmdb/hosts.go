@@ -12,11 +12,10 @@ import (
 const (
 	// DefaultSSHUser is the read-only inspection account on every host.
 	DefaultSSHUser = "auditor"
-	// DefaultSSHVaultRef is the PROPOSED Vault KV v2 path holding the
-	// inspection SSH private key (field ssh_private_key) and, where needed,
-	// per-host addresses. It must be created by an operator; nothing in this
-	// repository stores the secret itself.
-	DefaultSSHVaultRef = "kv/data/CICD/infrastructure-mcp"
+	// DefaultSSHVaultRef is the Vault KV v2 path of the OPS environment that
+	// holds the inspection SSH private key (field ssh_private_key). Only
+	// secrets live there; hostnames, users and ports stay in GitOps/CMDB.
+	DefaultSSHVaultRef = "kv/data/sit/platform/mcp"
 
 	envBaseDir   = "INFRA_CMDB_BASE_DIR"
 	envHostsFile = "INFRA_CMDB_HOSTS_FILE"
@@ -53,8 +52,8 @@ func defaultHostInventory() []HostEntry {
 		// sit-k3s-v6 temporarily holds several roles, including OPS: it runs the
 		// mcp.svc.plus gateway and the ssh-mcp-server sidecar. To move OPS to a
 		// dedicated host, drop "ops" here (or via hosts.json) and add it there.
-		{Hostname: "sit-k3s-v6", Environment: "sit", Role: "k3s-node", Roles: []string{"sit", "ops"}, RolesTemporary: true, Provider: "linode", Cluster: "SIT-K3S-V6"},
-		{Hostname: "prod-k3s-v6", Environment: "prod", Role: "k3s-node", Provider: "linode", Cluster: "PROD-K3S-V6"},
+		{Hostname: "sit-k3s-v6", Environment: "sit", Role: "k3s-node", Roles: []string{"sit", "ops"}, RolesTemporary: true, Provider: "linode", Cluster: "SIT-K3S-V6", SSHHost: "sit-k3s-v6.svc.plus"},
+		{Hostname: "prod-k3s-v6", Environment: "prod", Role: "k3s-node", Provider: "linode", Cluster: "PROD-K3S-V6", SSHHost: "prod-k3s-v6.svc.plus"},
 	}
 	for _, h := range edge {
 		hosts = append(hosts, HostEntry{Hostname: h, Environment: "prod", Role: "edge-agent", Provider: "unknown"})
@@ -147,14 +146,18 @@ func hostResource(h HostEntry, source string) Resource {
 		Attributes:  attrs,
 	}
 	if h.Inspect == nil || *h.Inspect {
+		sshHost := h.SSHHost
+		if sshHost == "" {
+			sshHost = h.Hostname
+		}
 		r.SSH = &SSHAccess{
-			Host:           h.Hostname,
+			Host:           sshHost,
 			User:           user,
 			Port:           port,
 			ConnectionName: shortName(h.Hostname),
 			VaultRef:       vaultRef,
 		}
-		attrs["ssh_target"] = user + "@" + h.Hostname
+		attrs["ssh_target"] = user + "@" + sshHost
 	}
 	return r
 }

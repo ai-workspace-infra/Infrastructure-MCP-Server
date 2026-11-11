@@ -37,6 +37,7 @@ type HostEntry struct {
 	RolesTemporary bool   `json:"roles_temporary,omitempty"`
 	Provider       string `json:"provider"`
 	Cluster        string `json:"cluster,omitempty"`
+	SSHHost        string `json:"ssh_host,omitempty"` // FQDN to dial when hostname is a short node name; default hostname
 	SSHUser        string `json:"ssh_user,omitempty"`
 	SSHPort        int    `json:"ssh_port,omitempty"`
 	VaultRef       string `json:"vault_ref,omitempty"`

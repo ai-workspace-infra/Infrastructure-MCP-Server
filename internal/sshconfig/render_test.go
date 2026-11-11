@@ -41,6 +41,9 @@ func TestRenderFromCMDBSeed(t *testing.T) {
 			t.Errorf("%s: policy not applied", c.Name)
 		}
 	}
+	if names["sit-k3s-v6"].Host != "sit-k3s-v6.svc.plus" || names["prod-k3s-v6"].Host != "prod-k3s-v6.svc.plus" {
+		t.Errorf("k3s nodes must dial their GitOps-declared FQDNs, got %s / %s", names["sit-k3s-v6"].Host, names["prod-k3s-v6"].Host)
+	}
 	for _, n := range []string{"sit-k3s-v6", "prod-k3s-v6", "us-xconnect-los-angeles-custom-01", "jp-free-selfhost-prod-v2"} {
 		if _, ok := names[n]; !ok {
 			t.Errorf("missing connection %s", n)
@@ -138,7 +141,7 @@ func TestBaseDirFromEnv(t *testing.T) {
 	}
 }
 
-func TestHostMapAndOpsRole(t *testing.T) {
+func TestOpsRole(t *testing.T) {
 	store := cmdb.NewStore(graph.NewStore(), t.TempDir())
 	var ops []cmdb.Resource
 	for _, r := range store.Resources("", "", "host", "") {
@@ -153,34 +156,4 @@ func TestHostMapAndOpsRole(t *testing.T) {
 		t.Fatal("ops host must keep its other roles")
 	}
 
-	dir := t.TempDir()
-	mapFile := filepath.Join(dir, "hosts.json")
-	_ = os.WriteFile(mapFile, []byte(`{"sit-k3s-v6":"node-a.internal.example","prod-k3s-v6.svc.plus":"unused"}`), 0o600)
-	hm, err := LoadHostMap(mapFile)
-	if err != nil {
-		t.Fatal(err)
-	}
-	conns, _, err := Render(store.SSHTargets(), DefaultPolicy(), Options{PrivateKeyPath: "/k", HostMap: hm})
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, c := range conns {
-		switch c.Name {
-		case "sit-k3s-v6":
-			if c.Host != "node-a.internal.example" {
-				t.Fatalf("host map not applied: %s", c.Host)
-			}
-		case "prod-k3s-v6":
-			if c.Host != "prod-k3s-v6" {
-				t.Fatalf("unexpected override for prod: %s", c.Host)
-			}
-		}
-	}
-}
-
-func TestHostMapMissingFileIsOptional(t *testing.T) {
-	m, err := LoadHostMap(filepath.Join(t.TempDir(), "absent.json"))
-	if err != nil || m != nil {
-		t.Fatalf("missing host map must be ignored, got %v %v", m, err)
-	}
 }
