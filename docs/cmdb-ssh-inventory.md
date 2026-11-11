@@ -42,7 +42,7 @@ Query them through the gateway:
 [
   {"hostname": "sg-xconnect.svc.plus", "environment": "prod", "role": "edge-agent", "provider": "vultr"},
   {"hostname": "new-edge.svc.plus", "environment": "prod", "role": "edge-agent", "provider": "aws",
-   "ssh_user": "auditor", "vault_ref": "kv/data/CICD/infrastructure-mcp"}
+   "ssh_user": "auditor", "vault_ref": "kv/data/sit/platform/mcp"}
 ]
 ```
 
