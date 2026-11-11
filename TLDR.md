@@ -57,6 +57,16 @@ flowchart TD
 
 ---
 
+## 默认 SSH 审计 MCP（classfang/ssh-mcp-server）
+
+仓库提供 [SSH auditor 客户端配置](docs/examples/ssh-auditor.mcp.json)，默认连接本机 `~/.ssh/config` 中名为 `auditor` 的主机别名，并固定使用 `@fangjunjie/ssh-mcp-server@1.10.0`。白名单只开放身份、系统资源、监听端口、指定 systemd 服务状态和对应服务日志查询；不允许通过命令执行接口运行任意 shell。
+
+启用前，先在本机 SSH 配置中为 `auditor` 指向目标主机的独立 `auditor` 账户，并使用该审计账户专属密钥。仓库只保存不含主机地址和密钥的 MCP 配置，不保存或生成 SSH 凭据。审计账户必须由主机权限强制只读、不得有 sudo、容器运行时管理组或业务写权限；MCP 命令白名单不能代替远端操作系统的授权。
+
+该 MCP 同时提供 SFTP 写入/上传等工具，项目没有提供关闭这些工具的配置开关。因此其安全边界依赖远端 `auditor` 账户权限：只能写入其自身受控审计工作目录，不得写入系统或业务位置。该配置面向需要审计身份的本地/受控客户端，不应作为公网上的共享 Infrastructure MCP 后端启用；不要把它加入服务端 `config.example.json` 并向所有网关用户暴露。
+
+---
+
 ## 一、可观测性 4-MCP（远程 SSE 接入规范）
 
 > [!NOTE]
