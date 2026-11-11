@@ -30,6 +30,7 @@ func main() {
 	renderSSH := flag.String("render-ssh-config", "", "render the ssh-mcp-server config from CMDB host resources to this path and exit")
 	sshOut := flag.String("ssh-config-out", "", "startup hook: render the ssh-mcp-server config from CMDB to this path before serving; also reads INFRA_SSH_CONFIG_OUT")
 	sshPolicy := flag.String("ssh-policy", "", "optional JSON policy (commandWhitelist, ...) for rendered SSH connections; also reads INFRA_SSH_POLICY_FILE")
+	sshHostMap := flag.String("ssh-host-map", "", "optional JSON {hostname: address} (Vault-sourced, never committed) used when rendering SSH connections; also reads INFRA_SSH_HOST_MAP_FILE")
 	sshEnv := flag.String("ssh-env", "", "comma-separated environments to include (e.g. sit,prod); default all; also reads INFRA_SSH_ENVIRONMENTS")
 	flag.Parse()
 
@@ -39,8 +40,9 @@ func main() {
 	}
 
 	sshOpts := sshRenderOptions{
-		policy: firstNonEmpty(*sshPolicy, os.Getenv("INFRA_SSH_POLICY_FILE")),
-		envs:   firstNonEmpty(*sshEnv, os.Getenv("INFRA_SSH_ENVIRONMENTS")),
+		policy:  firstNonEmpty(*sshPolicy, os.Getenv("INFRA_SSH_POLICY_FILE")),
+		envs:    firstNonEmpty(*sshEnv, os.Getenv("INFRA_SSH_ENVIRONMENTS")),
+		hostMap: firstNonEmpty(*sshHostMap, os.Getenv("INFRA_SSH_HOST_MAP_FILE")),
 	}
 	if *renderSSH != "" {
 		store := cmdb.NewStore(graph.NewStore(), "")
@@ -120,8 +122,9 @@ func main() {
 }
 
 type sshRenderOptions struct {
-	policy string
-	envs   string
+	policy  string
+	envs    string
+	hostMap string
 }
 
 func firstNonEmpty(values ...string) string {
@@ -142,6 +145,10 @@ func renderSSHConfig(store *cmdb.Store, out string, opts sshRenderOptions) error
 	if err != nil {
 		return err
 	}
+	hostMap, err := sshconfig.LoadHostMap(opts.hostMap)
+	if err != nil {
+		return err
+	}
 	var envs []string
 	if opts.envs != "" {
 		envs = strings.Split(opts.envs, ",")
@@ -149,6 +156,7 @@ func renderSSHConfig(store *cmdb.Store, out string, opts sshRenderOptions) error
 	conns, refs, err := sshconfig.Render(store.SSHTargets(envs...), policy, sshconfig.Options{
 		PrivateKeyPath: os.Getenv("SSH_MCP_PRIVATE_KEY_PATH"),
 		AgentSocket:    os.Getenv("SSH_AUTH_SOCK"),
+		HostMap:        hostMap,
 	})
 	if err != nil {
 		return err

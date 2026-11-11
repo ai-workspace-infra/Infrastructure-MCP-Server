@@ -79,3 +79,32 @@ Pair it with the gateway tool policy so the file-transfer tools are never expose
 - Hot reload: re-render on `infra.cmdb.sync` and restart the ssh child process.
 - Direct Vault fetch in the renderer (today the operator/init step materialises the key).
 - Real IaC/GitOps sync for hosts (today: seed + inventory file).
+
+## Remote deployment: SSH executor next to the gateway (OPS host)
+
+Other agents reach SSH tools only through `https://mcp.svc.plus` with
+`Authorization: Bearer <MCP_SERVICE_TOKEN>`; nobody needs a local private key.
+
+- OPS role: CMDB host with `roles` containing `ops` (`infra.cmdb.query {"kind":"host","role":"ops"}`).
+  Today `sit-k3s-v6` holds `["sit","ops"]` with `roles_temporary: true`; move the role by editing the
+  seed or `hosts.json`, then move the gitops unit to that host's cluster.
+- Pod layout (gitops `platform-mcp-sit`):
+  - initContainer (gateway image): `-render-ssh-config /run/ssh-mcp/ssh-config.json` from CMDB into a
+    shared `emptyDir`; `SSH_MCP_PRIVATE_KEY_PATH` points at the sidecar's Secret mount; optional
+    `-ssh-host-map` (Vault-sourced `{hostname: address}`) resolves short names without committing IPs.
+  - sidecar `ssh-mcp-server` (`node` image, `@fangjunjie/ssh-mcp-server` pinned version):
+    `--mcp-transport http --http-host 127.0.0.1 --http-port 3000`, bearer `SSH_MCP_HTTP_TOKEN`. Its
+    HTTP transport is stateless Streamable HTTP with JSON responses (no `Mcp-Session-Id`).
+  - gateway backend:
+    ```json
+    {"name": "ssh", "capability": "runtime", "transport": "streamable-http",
+     "url": "http://127.0.0.1:3000/mcp", "bearer_token_env": "SSH_MCP_HTTP_TOKEN",
+     "allowed_tools": ["list-servers", "execute-command"],
+     "disabled_tools": ["write-file", "upload", "download", "read-file", "job-*"]}
+    ```
+  - `bearer_token_env` (new) reads the backend token from an env var, so it can come from a Secret.
+- Verified locally: gateway → ssh-mcp-server 1.11.0 HTTP mode lists only `ssh.execute-command` /
+  `ssh.list-servers`; `ssh.write-file` is refused by gateway policy.
+- Note: `list-servers` output shows the dial address, so host-map addresses become visible to
+  authenticated agents at runtime (never in git/CMDB).
+- Note: ssh-mcp-server does not verify SSH host keys; restrict egress and use a dedicated `auditor` key.

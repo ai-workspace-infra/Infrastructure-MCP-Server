@@ -137,3 +137,43 @@ func TestBaseDirFromEnv(t *testing.T) {
 		t.Fatal("INFRA_CMDB_BASE_DIR not honoured")
 	}
 }
+
+func TestHostMapAndOpsRole(t *testing.T) {
+	store := cmdb.NewStore(graph.NewStore(), t.TempDir())
+	var ops []cmdb.Resource
+	for _, r := range store.Resources("", "", "host", "") {
+		if cmdb.HasRole(r, "ops") {
+			ops = append(ops, r)
+		}
+	}
+	if len(ops) != 1 || ops[0].SSH.ConnectionName != "sit-k3s-v6" || ops[0].Attributes["roles_temporary"] != true {
+		t.Fatalf("expected sit-k3s-v6 as the (temporary) ops host, got %#v", ops)
+	}
+	if !cmdb.HasRole(ops[0], "sit") || !cmdb.HasRole(ops[0], "k3s-node") {
+		t.Fatal("ops host must keep its other roles")
+	}
+
+	dir := t.TempDir()
+	mapFile := filepath.Join(dir, "hosts.json")
+	_ = os.WriteFile(mapFile, []byte(`{"sit-k3s-v6":"node-a.internal.example","prod-k3s-v6.svc.plus":"unused"}`), 0o600)
+	hm, err := LoadHostMap(mapFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	conns, _, err := Render(store.SSHTargets(), DefaultPolicy(), Options{PrivateKeyPath: "/k", HostMap: hm})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range conns {
+		switch c.Name {
+		case "sit-k3s-v6":
+			if c.Host != "node-a.internal.example" {
+				t.Fatalf("host map not applied: %s", c.Host)
+			}
+		case "prod-k3s-v6":
+			if c.Host != "prod-k3s-v6" {
+				t.Fatalf("unexpected override for prod: %s", c.Host)
+			}
+		}
+	}
+}

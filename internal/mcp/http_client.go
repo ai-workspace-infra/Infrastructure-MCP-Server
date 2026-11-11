@@ -95,8 +95,8 @@ func (c *HTTPClient) SessionID() string {
 
 func (c *HTTPClient) applyHeaders(req *http.Request) {
 	req.Header.Set("User-Agent", "infrastructure-mcp-server/0.3.0")
-	if c.config.BearerToken != "" {
-		req.Header.Set("Authorization", "Bearer "+c.config.BearerToken)
+	if token := c.config.ResolvedBearerToken(); token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
 	}
 	for k, v := range c.config.Headers {
 		req.Header.Set(k, v)

@@ -28,15 +28,19 @@ type SSHAccess struct {
 
 // HostEntry is one record of the host inventory (seed or inventory file).
 type HostEntry struct {
-	Hostname    string `json:"hostname"`
-	Environment string `json:"environment"` // sit, uat, prod
-	Role        string `json:"role"`        // k3s-node, edge-agent, ...
-	Provider    string `json:"provider"`
-	Cluster     string `json:"cluster,omitempty"`
-	SSHUser     string `json:"ssh_user,omitempty"`
-	SSHPort     int    `json:"ssh_port,omitempty"`
-	VaultRef    string `json:"vault_ref,omitempty"`
-	Inspect     *bool  `json:"inspect,omitempty"` // default true
+	Hostname    string   `json:"hostname"`
+	Environment string   `json:"environment"`     // sit, uat, prod
+	Role        string   `json:"role"`            // primary role: k3s-node, edge-agent, ...
+	Roles       []string `json:"roles,omitempty"` // functional roles, e.g. ["sit","ops"]; a host may hold several
+	// RolesTemporary marks the role assignment as interim (e.g. the SIT node
+	// doubling as the OPS host until a dedicated one exists).
+	RolesTemporary bool   `json:"roles_temporary,omitempty"`
+	Provider       string `json:"provider"`
+	Cluster        string `json:"cluster,omitempty"`
+	SSHUser        string `json:"ssh_user,omitempty"`
+	SSHPort        int    `json:"ssh_port,omitempty"`
+	VaultRef       string `json:"vault_ref,omitempty"`
+	Inspect        *bool  `json:"inspect,omitempty"` // default true
 }
 
 type ServiceStatus struct {

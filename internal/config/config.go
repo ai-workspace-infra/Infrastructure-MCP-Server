@@ -7,6 +7,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"strings"
 	"time"
 )
 
@@ -21,16 +22,20 @@ type ServerConfig struct {
 }
 
 type BackendConfig struct {
-	Name        string            `json:"name"`
-	Capability  string            `json:"capability"`
-	Command     string            `json:"command,omitempty"`
-	Args        []string          `json:"args,omitempty"`
-	URL         string            `json:"url,omitempty"`
-	Transport   string            `json:"transport,omitempty"`
-	BearerToken string            `json:"bearer_token,omitempty"`
-	Headers     map[string]string `json:"headers,omitempty"`
-	Env         map[string]string `json:"env,omitempty"`
-	Enabled     *bool             `json:"enabled,omitempty"`
+	Name        string   `json:"name"`
+	Capability  string   `json:"capability"`
+	Command     string   `json:"command,omitempty"`
+	Args        []string `json:"args,omitempty"`
+	URL         string   `json:"url,omitempty"`
+	Transport   string   `json:"transport,omitempty"`
+	BearerToken string   `json:"bearer_token,omitempty"`
+	// BearerTokenEnv names an environment variable holding the bearer token,
+	// so the token can come from a Kubernetes Secret instead of the config file.
+	// It is used only when bearer_token is empty.
+	BearerTokenEnv string            `json:"bearer_token_env,omitempty"`
+	Headers        map[string]string `json:"headers,omitempty"`
+	Env            map[string]string `json:"env,omitempty"`
+	Enabled        *bool             `json:"enabled,omitempty"`
 	// TimeoutSeconds bounds every request to this backend (stdio or HTTP).
 	// Zero means the default (30s).
 	TimeoutSeconds int `json:"timeout_seconds,omitempty"`
@@ -51,6 +56,17 @@ func (b BackendConfig) Timeout() time.Duration {
 		return time.Duration(b.TimeoutSeconds) * time.Second
 	}
 	return DefaultBackendTimeout
+}
+
+// ResolvedBearerToken returns bearer_token, else the value of bearer_token_env.
+func (b BackendConfig) ResolvedBearerToken() string {
+	if b.BearerToken != "" {
+		return b.BearerToken
+	}
+	if b.BearerTokenEnv != "" {
+		return strings.TrimSpace(os.Getenv(b.BearerTokenEnv))
+	}
+	return ""
 }
 
 // ToolAllowed reports whether a downstream tool may be listed or called

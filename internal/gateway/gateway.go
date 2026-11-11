@@ -197,6 +197,7 @@ func (g *Gateway) Tools(ctx context.Context) ([]mcp.Tool, error) {
 				"environment":   map[string]any{"type": "string", "description": "Filter by environment: sit, uat, prod, shared"},
 				"provider":      map[string]any{"type": "string", "description": "Filter by provider: linode, gcp, aws, cloudflare, vultr"},
 				"kind":          map[string]any{"type": "string", "description": "Filter by kind: compute, host (SSH inspection targets, carry an ssh block), dns, service, database, network"},
+				"role":          map[string]any{"type": "string", "description": "Filter by functional role, e.g. ops (host running the MCP gateway + SSH executor), edge-agent, k3s-node"},
 				"status":        map[string]any{"type": "string", "description": "Filter by status: running, active, standby, ready"},
 				"node_id":       map[string]any{"type": "string", "description": "Graph node ID to inspect with its connected edges and topology (e.g. 'service/observability-gateway')"},
 				"include_graph": map[string]any{"type": "boolean", "description": "If true, attach connected environment graph topology to the response"},
@@ -526,7 +527,17 @@ func (g *Gateway) cmdbQuery(arguments map[string]any) (mcp.CallToolResult, error
 	status, _ := arguments["status"].(string)
 	includeGraph, _ := arguments["include_graph"].(bool)
 
+	role, _ := arguments["role"].(string)
 	resources := g.cmdb.Resources(env, provider, kind, status)
+	if role != "" {
+		filtered := []cmdb.Resource{}
+		for _, r := range resources {
+			if cmdb.HasRole(r, role) {
+				filtered = append(filtered, r)
+			}
+		}
+		resources = filtered
+	}
 	resp := map[string]any{
 		"total":     len(resources),
 		"resources": resources,

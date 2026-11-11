@@ -50,7 +50,10 @@ func defaultHostInventory() []HostEntry {
 		"us-xconnect.svc.plus",
 	}
 	hosts := []HostEntry{
-		{Hostname: "sit-k3s-v6", Environment: "sit", Role: "k3s-node", Provider: "linode", Cluster: "SIT-K3S-V6"},
+		// sit-k3s-v6 temporarily holds several roles, including OPS: it runs the
+		// mcp.svc.plus gateway and the ssh-mcp-server sidecar. To move OPS to a
+		// dedicated host, drop "ops" here (or via hosts.json) and add it there.
+		{Hostname: "sit-k3s-v6", Environment: "sit", Role: "k3s-node", Roles: []string{"sit", "ops"}, RolesTemporary: true, Provider: "linode", Cluster: "SIT-K3S-V6"},
 		{Hostname: "prod-k3s-v6", Environment: "prod", Role: "k3s-node", Provider: "linode", Cluster: "PROD-K3S-V6"},
 	}
 	for _, h := range edge {
@@ -123,6 +126,12 @@ func hostResource(h HostEntry, source string) Resource {
 		port = 22
 	}
 	attrs := map[string]any{"role": h.Role, "hostname": h.Hostname}
+	if len(h.Roles) > 0 {
+		attrs["roles"] = h.Roles
+		if h.RolesTemporary {
+			attrs["roles_temporary"] = true
+		}
+	}
 	if h.Cluster != "" {
 		attrs["cluster"] = h.Cluster
 	}
@@ -173,4 +182,30 @@ func (s *Store) SSHTargets(environments ...string) []Resource {
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
 	return out
+}
+
+// HasRole reports whether a resource carries the given functional role,
+// either as its primary attributes.role or inside attributes.roles.
+func HasRole(r Resource, role string) bool {
+	if role == "" {
+		return true
+	}
+	if v, ok := r.Attributes["role"].(string); ok && strings.EqualFold(v, role) {
+		return true
+	}
+	switch roles := r.Attributes["roles"].(type) {
+	case []string:
+		for _, v := range roles {
+			if strings.EqualFold(v, role) {
+				return true
+			}
+		}
+	case []any:
+		for _, v := range roles {
+			if s, ok := v.(string); ok && strings.EqualFold(s, role) {
+				return true
+			}
+		}
+	}
+	return false
 }

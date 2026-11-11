@@ -88,6 +88,28 @@ func LoadPolicy(path string) (Policy, error) {
 type Options struct {
 	PrivateKeyPath string // path to a key file materialised from Vault
 	AgentSocket    string // SSH agent socket (alternative to PrivateKeyPath)
+	// HostMap optionally maps a CMDB hostname or connection name to the
+	// address to dial (e.g. for short names like sit-k3s-v6). It is loaded at
+	// render time from a Vault-sourced file, so addresses never enter git or
+	// the CMDB; only the rendered runtime file contains them.
+	HostMap map[string]string
+}
+
+// LoadHostMap reads a JSON object {"<hostname or connection name>": "<address>"}.
+// An empty path returns nil.
+func LoadHostMap(path string) (map[string]string, error) {
+	if path == "" {
+		return nil, nil
+	}
+	data, err := os.ReadFile(filepath.Clean(path))
+	if err != nil {
+		return nil, err
+	}
+	m := map[string]string{}
+	if err := json.Unmarshal(data, &m); err != nil {
+		return nil, fmt.Errorf("parse host map %s: %w", path, err)
+	}
+	return m, nil
 }
 
 // Connection is one ssh-mcp-server connection entry.
@@ -133,7 +155,13 @@ func Render(resources []cmdb.Resource, policy Policy, opts Options) ([]Connectio
 		if user == "" {
 			user = cmdb.DefaultSSHUser
 		}
-		c := Connection{Name: name, Host: r.SSH.Host, Port: port, Username: user, Policy: policy}
+		host := r.SSH.Host
+		if addr, ok := opts.HostMap[r.SSH.Host]; ok && addr != "" {
+			host = addr
+		} else if addr, ok := opts.HostMap[name]; ok && addr != "" {
+			host = addr
+		}
+		c := Connection{Name: name, Host: host, Port: port, Username: user, Policy: policy}
 		if opts.PrivateKeyPath != "" {
 			c.PrivateKey = opts.PrivateKeyPath
 		} else {

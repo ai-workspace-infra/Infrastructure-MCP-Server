@@ -28,3 +28,15 @@ func TestValidateRejectsBadTransportAndPattern(t *testing.T) {
 		t.Fatal("expected invalid pattern error")
 	}
 }
+
+func TestBearerTokenEnv(t *testing.T) {
+	t.Setenv("SSH_MCP_HTTP_TOKEN_TEST", " s3cret ")
+	b := BackendConfig{BearerTokenEnv: "SSH_MCP_HTTP_TOKEN_TEST"}
+	if got := b.ResolvedBearerToken(); got != "s3cret" {
+		t.Fatalf("got %q", got)
+	}
+	b.BearerToken = "inline"
+	if got := b.ResolvedBearerToken(); got != "inline" {
+		t.Fatalf("inline token must win, got %q", got)
+	}
+}
