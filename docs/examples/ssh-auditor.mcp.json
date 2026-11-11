@@ -1,0 +1,15 @@
+{
+  "mcpServers": {
+    "ssh-auditor": {
+      "command": "npx",
+      "args": [
+        "--yes",
+        "@fangjunjie/ssh-mcp-server@1.10.0",
+        "--host",
+        "auditor",
+        "--whitelist",
+        "^id$,^whoami$,^uname -a$,^uptime$,^free -h$,^df -h$,^ps aux$,^ss -lntup$,^systemctl status [A-Za-z0-9_.@:-]+ --no-pager$,^journalctl -u [A-Za-z0-9_.@:-]+ --since [0-9T:+-]+ --no-pager$"
+      ]
+    }
+  }
+}
