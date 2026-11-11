@@ -177,3 +177,10 @@ func TestHostMapAndOpsRole(t *testing.T) {
 		}
 	}
 }
+
+func TestHostMapMissingFileIsOptional(t *testing.T) {
+	m, err := LoadHostMap(filepath.Join(t.TempDir(), "absent.json"))
+	if err != nil || m != nil {
+		t.Fatalf("missing host map must be ignored, got %v %v", m, err)
+	}
+}

@@ -96,12 +96,16 @@ type Options struct {
 }
 
 // LoadHostMap reads a JSON object {"<hostname or connection name>": "<address>"}.
-// An empty path returns nil.
+// An empty path or a missing file returns nil (no overrides).
 func LoadHostMap(path string) (map[string]string, error) {
 	if path == "" {
 		return nil, nil
 	}
 	data, err := os.ReadFile(filepath.Clean(path))
+	if errors.Is(err, os.ErrNotExist) {
+		// Optional Secret not provisioned yet: no overrides.
+		return nil, nil
+	}
 	if err != nil {
 		return nil, err
 	}
