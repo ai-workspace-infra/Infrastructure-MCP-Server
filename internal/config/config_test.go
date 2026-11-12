@@ -13,7 +13,7 @@ func TestValidateRejectsDuplicateBackends(t *testing.T) {
 func TestValidateAcceptsURLBackend(t *testing.T) {
 	cfg := Default()
 	cfg.Backends = []BackendConfig{
-		{Name: "observability-metrics", Capability: "observability", URL: "https://observability.svc.plus/mcp/v1/metrics/mcp"},
+		{Name: "observability-metrics", Capability: "observability", URL: "https://mcp.svc.plus/v1/metrics/mcp"},
 	}
 	if err := cfg.Validate(); err != nil {
 		t.Fatalf("expected valid url backend: %v", err)

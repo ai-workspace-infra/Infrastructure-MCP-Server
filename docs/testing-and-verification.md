@@ -79,6 +79,7 @@ curl -s --resolve mcp.svc.plus:443:172.237.9.58 "https://mcp.svc.plus/api/v1/top
 ```bash
 curl --http1.1 -s --resolve mcp.svc.plus:443:172.237.9.58 -X POST \
   "https://mcp.svc.plus/api/v1/tools/call" \
+  -H "Authorization: Bearer $MCP_SERVICE_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"name": "infra.metrics.query", "arguments": {"query": "probe_success"}}' | jq .
 ```
@@ -117,13 +118,14 @@ echo '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}' | ./infrastruc
 
 ### 用例 8：下游独立可观测性 MCP Server 直连验证（Victoria 全家桶 + Grafana）
 
-每个下游 MCP Server 均已配置独立 IngressRoute，智能体可直接直连：
+每个下游 MCP Server 都挂在 `mcp.svc.plus` 下（`observability.svc.plus/mcp/*` 已下线），所有请求需带 `Authorization: Bearer $MCP_SERVICE_TOKEN`：
 
-#### 8.1 VictoriaMetrics MCP 直连握手与工具列表 (`:8088`, Ingress: `/mcp/v1/metrics/mcp`)
+#### 8.1 VictoriaMetrics MCP 直连握手与工具列表 (`:8088`, Ingress: `mcp.svc.plus/v1/metrics/mcp`)
 ```bash
 # 1. 握手获取 Session ID 与 serverInfo (16 tools)
-curl -s -i --resolve observability.svc.plus:443:172.237.9.58 \
-  -X POST "https://observability.svc.plus/mcp/v1/metrics/mcp" \
+curl -s -i \
+  -X POST "https://mcp.svc.plus/v1/metrics/mcp" \
+  -H "Authorization: Bearer $MCP_SERVICE_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"agent","version":"1.0"}}}'
 
@@ -133,11 +135,12 @@ curl -s -i --resolve observability.svc.plus:443:172.237.9.58 \
 # {"jsonrpc":"2.0","id":1,"result":{"serverInfo":{"name":"VictoriaMetrics","version":"v1.20.2"}}}
 ```
 
-#### 8.2 VictoriaLogs MCP 直连握手 (`:8083`, Ingress: `/mcp/v1/logs/mcp`)
+#### 8.2 VictoriaLogs MCP 直连握手 (`:8083`, Ingress: `mcp.svc.plus/v1/logs/mcp`)
 ```bash
 # 握手 (13 tools)
-curl -s -i --resolve observability.svc.plus:443:172.237.9.58 \
-  -X POST "https://observability.svc.plus/mcp/v1/logs/mcp" \
+curl -s -i \
+  -X POST "https://mcp.svc.plus/v1/logs/mcp" \
+  -H "Authorization: Bearer $MCP_SERVICE_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"agent","version":"1.0"}}}'
 
@@ -147,11 +150,12 @@ curl -s -i --resolve observability.svc.plus:443:172.237.9.58 \
 # {"jsonrpc":"2.0","id":1,"result":{"serverInfo":{"name":"VictoriaLogs","version":"v1.9.0"}}}
 ```
 
-#### 8.3 VictoriaTraces MCP 直连握手 (`:8082`, Ingress: `/mcp/v1/traces/mcp`)
+#### 8.3 VictoriaTraces MCP 直连握手 (`:8082`, Ingress: `mcp.svc.plus/v1/traces/mcp`)
 ```bash
 # 握手 (6 tools)
-curl -s -i --resolve observability.svc.plus:443:172.237.9.58 \
-  -X POST "https://observability.svc.plus/mcp/v1/traces/mcp" \
+curl -s -i \
+  -X POST "https://mcp.svc.plus/v1/traces/mcp" \
+  -H "Authorization: Bearer $MCP_SERVICE_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"agent","version":"1.0"}}}'
 
@@ -161,10 +165,10 @@ curl -s -i --resolve observability.svc.plus:443:172.237.9.58 \
 # {"jsonrpc":"2.0","id":1,"result":{"serverInfo":{"name":"VictoriaTraces","version":"v1.5.0"}}}
 ```
 
-#### 8.4 Grafana MCP 直连 SSE 端点 (`:8000`, Ingress: `/mcp/v1/grafana/sse`)
+#### 8.4 Grafana MCP 直连 SSE 端点 (`:8000`, Ingress: `mcp.svc.plus/v1/grafana/mcp`)
 ```bash
-curl -N -s --resolve observability.svc.plus:443:172.237.9.58 \
-  "https://observability.svc.plus/mcp/v1/grafana/sse" | head -n 3
+curl -N -s \
+  "https://mcp.svc.plus/v1/grafana/mcp" | head -n 3
 
 # 响应示例：
 # event: endpoint

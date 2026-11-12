@@ -7,34 +7,38 @@
     {
       "name": "observability-grafana",
       "capability": "observability",
-      "transport": "sse",
-      "url": "https://observability.svc.plus/mcp/v1/grafana/sse",
+      "transport": "streamable-http",
+      "url": "https://mcp.svc.plus/v1/grafana/mcp",
       "enabled": false,
-      "timeout_seconds": 30
+      "timeout_seconds": 30,
+      "bearer_token_env": "MCP_SERVICE_TOKEN"
     },
     {
       "name": "observability-metrics",
       "capability": "observability",
       "transport": "streamable-http",
-      "url": "https://observability.svc.plus/mcp/v1/metrics/mcp",
+      "url": "https://mcp.svc.plus/v1/metrics/mcp",
       "enabled": true,
-      "timeout_seconds": 30
+      "timeout_seconds": 30,
+      "bearer_token_env": "MCP_SERVICE_TOKEN"
     },
     {
       "name": "observability-logs",
       "capability": "observability",
       "transport": "streamable-http",
-      "url": "https://observability.svc.plus/mcp/v1/logs/mcp",
+      "url": "https://mcp.svc.plus/v1/logs/mcp",
       "enabled": true,
-      "timeout_seconds": 30
+      "timeout_seconds": 30,
+      "bearer_token_env": "MCP_SERVICE_TOKEN"
     },
     {
       "name": "observability-traces",
       "capability": "observability",
       "transport": "streamable-http",
-      "url": "https://observability.svc.plus/mcp/v1/traces/mcp",
+      "url": "https://mcp.svc.plus/v1/traces/mcp",
       "enabled": true,
-      "timeout_seconds": 30
+      "timeout_seconds": 30,
+      "bearer_token_env": "MCP_SERVICE_TOKEN"
     },
     {
       "name": "ssh",
