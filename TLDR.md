@@ -260,10 +260,10 @@ flowchart TD
 > }
 > ```
 
-### 2. 全量未来配置（含待服务端网关就绪的 4-MCP）
+### 2. 全量配置（含 mcp.svc.plus 上的 4-MCP）
 
 > [!WARNING]
-> ⚠️ **请注意**：由于当前 `observability.svc.plus` 服务端 Caddy 网关尚未放行 `/mcp/v1/*` 路由（返回 HTTP 302 重定向至 Grafana 网页），**请待服务端网关启用 `observability_mcp_enabled: true` 后再追加以下 4-MCP 项**，否则可能导致 IDE 启动时报错或请求卡死。
+> `observability.svc.plus/mcp/*` 已下线。4 个可观测 MCP 统一挂在 `mcp.svc.plus` 下（`platform-mcp` chart），每条路由都要求 `Authorization: Bearer $MCP_SERVICE_TOKEN`，客户端需配置该请求头。
 
 ```json
 {
@@ -279,16 +279,20 @@ flowchart TD
       "command": "/Users/shenlan/.local/bin/run-qmd-mcp.sh"
     },
     "observability-grafana": {
-      "url": "https://observability.svc.plus/mcp/v1/grafana/mcp"
+      "url": "https://mcp.svc.plus/v1/grafana/mcp",
+      "headers": { "Authorization": "Bearer ${MCP_SERVICE_TOKEN}" }
     },
     "observability-metrics": {
-      "url": "https://observability.svc.plus/mcp/v1/metrics/mcp"
+      "url": "https://mcp.svc.plus/v1/metrics/mcp",
+      "headers": { "Authorization": "Bearer ${MCP_SERVICE_TOKEN}" }
     },
     "observability-logs": {
-      "url": "https://observability.svc.plus/mcp/v1/logs/mcp"
+      "url": "https://mcp.svc.plus/v1/logs/mcp",
+      "headers": { "Authorization": "Bearer ${MCP_SERVICE_TOKEN}" }
     },
     "observability-traces": {
-      "url": "https://observability.svc.plus/mcp/v1/traces/mcp"
+      "url": "https://mcp.svc.plus/v1/traces/mcp",
+      "headers": { "Authorization": "Bearer ${MCP_SERVICE_TOKEN}" }
     }
   }
 }
